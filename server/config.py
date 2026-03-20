@@ -14,9 +14,9 @@ STEREO_CALIB_WIDTH = 640
 STEREO_CALIB_HEIGHT = 480
 
 # === Depth Anything V2 Model ===
-MODEL_ENCODER = "vits"      # "vits" or "vitb"
+MODEL_ENCODER = "vitl"      # "vits", "vitb", or "vitl"
 MODEL_DIR = "checkpoints"
-MODEL_INPUT_SIZE = 252
+MODEL_INPUT_SIZE = 518
 
 # === Inference Backend ===
 # "tensorrt" | "onnxrt" | "pytorch"

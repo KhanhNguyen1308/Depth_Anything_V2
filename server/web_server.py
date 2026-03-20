@@ -123,6 +123,7 @@ def api_status():
 
     results = _depth_processor.get_results()
     depth_info = results.get("depth_info", {})
+    has_stereo = getattr(_depth_processor, '_sgbm', None) is not None
     return jsonify({
         "status": "running",
         "fps": round(results.get("fps", 0), 1),
@@ -130,6 +131,7 @@ def api_status():
         "input_size": config.MODEL_INPUT_SIZE,
         "fp16": config.USE_FP16,
         "stream_port": config.STREAM_PORT,
+        "stereo": has_stereo,
         "center_dist": depth_info.get("center_dist", 0),
         "min_dist": depth_info.get("min_dist", 0),
         "max_dist": depth_info.get("max_dist", 0),

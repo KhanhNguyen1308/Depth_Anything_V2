@@ -29,11 +29,12 @@ class DepthAnythingV2Estimator:
         model_configs = {
             "vits": {"encoder": "vits", "features": 64, "out_channels": [48, 96, 192, 384]},
             "vitb": {"encoder": "vitb", "features": 128, "out_channels": [96, 192, 384, 768]},
+            "vitl": {"encoder": "vitl", "features": 256, "out_channels": [256, 512, 1024, 1024]},
         }
 
         encoder = config.MODEL_ENCODER
         if encoder not in model_configs:
-            raise ValueError(f"Encoder '{encoder}' không hỗ trợ. Chọn 'vits' hoặc 'vitb'.")
+            raise ValueError(f"Encoder '{encoder}' không hỗ trợ. Chọn 'vits', 'vitb', hoặc 'vitl'.")
 
         model_cfg = model_configs[encoder]
         self.model = DepthAnythingV2(**model_cfg)
@@ -324,6 +325,50 @@ class DualCameraDepthEstimator:
 
         return result
 
+    def _overlay_relative_depth(self, depth_color, depth_normalized):
+        """Overlay relative depth info when stereo calibration is unavailable."""
+        h, w = depth_normalized.shape
+        result = depth_color
+
+        ch, cw = h // 2, w // 2
+        rh, rw = h // 5, w // 5
+        center_region = depth_normalized[ch - rh:ch + rh, cw - rw:cw + rw]
+
+        if center_region.size > 0:
+            # Depth Anything: higher value = closer (inverted depth)
+            center_val = float(np.median(center_region))
+            min_val = float(np.min(depth_normalized[depth_normalized > 0.01])) if np.any(depth_normalized > 0.01) else 0
+            max_val = float(np.max(depth_normalized))
+
+            self._depth_info = {
+                "center_dist": round(center_val, 3),
+                "min_dist": round(min_val, 3),
+                "max_dist": round(max_val, 3),
+            }
+
+            # Draw crosshair + relative depth value
+            cv2.rectangle(result, (cw - rw, ch - rh), (cw + rw, ch + rh),
+                          (0, 255, 0), 1)
+            cv2.drawMarker(result, (cw, ch), (0, 255, 0),
+                           cv2.MARKER_CROSS, 20, 1)
+
+            text = f"{center_val:.2f}"
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 0.8
+            thickness = 2
+            (tw, th_t), _ = cv2.getTextSize(text, font, font_scale, thickness)
+            tx, ty = cw - tw // 2, ch - rh - 10
+            cv2.rectangle(result, (tx - 4, ty - th_t - 4), (tx + tw + 4, ty + 4),
+                          (0, 0, 0), -1)
+            cv2.putText(result, text, (tx, ty), font, font_scale,
+                        (0, 255, 0), thickness)
+
+            info = f"Near:{max_val:.2f} Far:{min_val:.2f} (relative)"
+            cv2.putText(result, info, (8, h - 10), font, 0.45,
+                        (200, 200, 200), 1)
+
+        return result
+
     def start(self, camera_mgr):
         """Khởi động inference thread xen kẽ."""
         self._camera_mgr = camera_mgr
@@ -354,13 +399,18 @@ class DualCameraDepthEstimator:
             t0 = time.time()
             depth_color, depth_raw = self.estimator.estimate(frame)
 
-            # Stereo depth: tính khi xử lý cam0, skip frames để tăng FPS
-            if cam_id == 0 and self._sgbm is not None:
-                self._stereo_frame_count += 1
-                if self._stereo_frame_count >= self._stereo_skip:
-                    self._stereo_frame_count = 0
-                    self._cached_depth_m = self._compute_stereo_depth(frame_l, frame_r)
-                depth_color = self._overlay_distance(depth_color, self._cached_depth_m)
+            # Depth overlay on cam0
+            if cam_id == 0:
+                if self._sgbm is not None:
+                    # Stereo depth: absolute distance in meters
+                    self._stereo_frame_count += 1
+                    if self._stereo_frame_count >= self._stereo_skip:
+                        self._stereo_frame_count = 0
+                        self._cached_depth_m = self._compute_stereo_depth(frame_l, frame_r)
+                    depth_color = self._overlay_distance(depth_color, self._cached_depth_m)
+                else:
+                    # Mono depth: relative depth overlay (no calibration)
+                    depth_color = self._overlay_relative_depth(depth_color, depth_raw)
 
             elapsed = time.time() - t0
             fps = 1.0 / max(elapsed, 1e-6)

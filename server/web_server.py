@@ -129,7 +129,7 @@ def api_status():
         "model": config.MODEL_ENCODER,
         "input_size": config.MODEL_INPUT_SIZE,
         "fp16": config.USE_FP16,
-        "cameras": [config.CAMERA_0_INDEX, config.CAMERA_1_INDEX],
+        "stream_port": config.STREAM_PORT,
         "center_dist": depth_info.get("center_dist", 0),
         "min_dist": depth_info.get("min_dist", 0),
         "max_dist": depth_info.get("max_dist", 0),

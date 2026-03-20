@@ -34,6 +34,6 @@ STREAM_PORT = 9000          # TCP port for receiving camera frames
 
 # === Web Server ===
 WEB_HOST = "0.0.0.0"
-WEB_PORT = 5000
+WEB_PORT = 8080
 JPEG_QUALITY = 85
 STREAM_FPS = 30

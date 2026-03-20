@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Depth Anything V2 - Jetson Nano</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <h1>Depth Anything V2 - Dual Camera</h1>
+        <div id="status-bar">
+            <span id="status-text">Đang kết nối...</span>
+            <span id="fps-text">FPS: --</span>
+            <span id="model-text">Model: --</span>
+        </div>
+    </header>
+
+    <main>
+        <!-- Depth distance info -->
+        <div id="depth-panel">
+            <div class="depth-card center-card">
+                <div class="depth-label">Trung tâm</div>
+                <div class="depth-value" id="center-dist">--</div>
+                <div class="depth-unit">m</div>
+            </div>
+            <div class="depth-card">
+                <div class="depth-label">Gần nhất</div>
+                <div class="depth-value small" id="min-dist">--</div>
+                <div class="depth-unit">m</div>
+            </div>
+            <div class="depth-card">
+                <div class="depth-label">Xa nhất</div>
+                <div class="depth-value small" id="max-dist">--</div>
+                <div class="depth-unit">m</div>
+            </div>
+        </div>
+
+        <!-- Chế độ xem -->
+        <div class="view-controls">
+            <button class="view-btn active" data-view="combined">Combined View</button>
+            <button class="view-btn" data-view="individual">Individual Streams</button>
+        </div>
+
+        <!-- Combined view -->
+        <div id="combined-view" class="view-panel active">
+            <div class="stream-container single">
+                <img src="/video_feed/combined" alt="Combined View" id="combined-img">
+            </div>
+        </div>
+
+        <!-- Individual streams -->
+        <div id="individual-view" class="view-panel">
+            <div class="grid-2x2">
+                <div class="stream-container">
+                    <h3>Camera 0 - RGB</h3>
+                    <img src="" data-src="/video_feed/cam0_rgb" alt="Camera 0 RGB" class="lazy-stream">
+                </div>
+                <div class="stream-container">
+                    <h3>Camera 0 - Depth</h3>
+                    <img src="" data-src="/video_feed/cam0_depth" alt="Camera 0 Depth" class="lazy-stream">
+                </div>
+                <div class="stream-container">
+                    <h3>Camera 1 - RGB</h3>
+                    <img src="" data-src="/video_feed/cam1_rgb" alt="Camera 1 RGB" class="lazy-stream">
+                </div>
+                <div class="stream-container">
+                    <h3>Camera 1 - Depth</h3>
+                    <img src="" data-src="/video_feed/cam1_depth" alt="Camera 1 Depth" class="lazy-stream">
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <p>Depth Anything V2 | Remote Processing Server</p>
+    </footer>
+
+    <script>
+        // View switching
+        document.querySelectorAll('.view-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.view-panel').forEach(p => p.classList.remove('active'));
+                btn.classList.add('active');
+
+                const viewName = btn.dataset.view;
+                const panel = document.getElementById(viewName + '-view');
+                panel.classList.add('active');
+
+                // Lazy load streams khi chuyển sang individual view
+                if (viewName === 'individual') {
+                    panel.querySelectorAll('.lazy-stream').forEach(img => {
+                        if (!img.src || img.src === window.location.href) {
+                            img.src = img.dataset.src;
+                        }
+                    });
+                }
+            });
+        });
+
+        // Status polling
+        function updateStatus() {
+            fetch('/api/status')
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('status-text').textContent =
+                        data.status === 'running' ? '● Running' : '○ Initializing...';
+                    document.getElementById('status-text').className =
+                        data.status === 'running' ? 'running' : 'init';
+                    document.getElementById('fps-text').textContent = 'FPS: ' + data.fps;
+                    document.getElementById('model-text').textContent =
+                        'Model: ' + data.model + ' (' + data.input_size + 'px' +
+                        (data.fp16 ? ', FP16' : '') + ')';
+
+                    // Distance info
+                    var cd = data.center_dist, mn = data.min_dist, mx = data.max_dist;
+                    document.getElementById('center-dist').textContent =
+                        (cd != null && cd > 0) ? cd.toFixed(2) : '--';
+                    document.getElementById('min-dist').textContent =
+                        (mn != null && mn > 0) ? mn.toFixed(2) : '--';
+                    document.getElementById('max-dist').textContent =
+                        (mx != null && mx > 0) ? mx.toFixed(2) : '--';
+                })
+                .catch(() => {
+                    document.getElementById('status-text').textContent = '● Offline';
+                    document.getElementById('status-text').className = 'offline';
+                });
+        }
+
+        setInterval(updateStatus, 2000);
+        updateStatus();
+    </script>
+</body>
+</html>

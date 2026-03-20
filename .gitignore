@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Model files (large binaries)
+checkpoints/
+*.onnx
+*.onnx.data
+*.engine
+*.pth
+*.pt
+
+# Calibration data (device-specific)
+calibration.npz
+calibration_backup.npz
+
+# Test outputs
+test_output.jpg
+
+# Upstream model repo (submodule or download separately)
+Depth-Anything-V2/
+server/depth_anything_v2/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+venv/

@@ -1,0 +1,15 @@
+[Unit]
+Description=Depth Camera Streamer - Jetson Nano
+After=network.target
+
+[Service]
+Type=simple
+User=jetson
+WorkingDirectory=/home/jetson/Projects/Depth_Anything_V2/jetson
+ExecStart=/usr/bin/python3 /home/jetson/Projects/Depth_Anything_V2/jetson/camera_streamer.py
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

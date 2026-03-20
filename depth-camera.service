@@ -1,0 +1,16 @@
+[Unit]
+Description=Depth Anything V2 - Dual Camera Depth System
+After=network.target
+
+[Service]
+Type=simple
+User=jetson
+WorkingDirectory=/home/jetson/Depth_Anything_V2
+ExecStart=/usr/bin/python3 /home/jetson/Depth_Anything_V2/main.py
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+Environment=OMP_NUM_THREADS=4
+
+[Install]
+WantedBy=multi-user.target

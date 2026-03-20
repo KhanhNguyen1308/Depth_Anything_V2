@@ -1,0 +1,28 @@
+# Depth Anything V2 - Jetson Nano
+# Python 3.8, Ubuntu 20.04
+
+# PyTorch for Jetson Nano (install from NVIDIA wheel, not pip)
+# torch==1.13.0
+# torchvision==0.14.0
+
+# OpenCV 4.8 with CUDA (pre-installed on Jetson)
+# opencv-python==4.8.0
+
+# ONNX Runtime cho Jetson Nano (khuyến nghị cho TensorRT inference)
+# Cài từ NVIDIA Jetson Zoo hoặc:
+#   pip3 install onnxruntime-gpu
+# Nếu dùng raw TensorRT (không qua ONNX Runtime):
+#   pip3 install pycuda
+
+# Depth Anything V2 dependencies
+huggingface-hub>=0.20.0
+safetensors>=0.4.0
+timm==0.9.12
+
+# Web streaming
+flask>=2.0.0
+flask-cors>=3.0.10
+
+# Utilities
+numpy>=1.19.0
+Pillow>=8.0.0

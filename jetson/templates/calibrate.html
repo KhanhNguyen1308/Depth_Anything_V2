@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stereo Calibration - Depth Anything V2</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .calib-container {
+            max-width: 1300px;
+            width: 100%;
+            margin: 0 auto;
+        }
+
+        .calib-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .calib-header h2 {
+            color: #e94560;
+            font-size: 1.2rem;
+        }
+
+        .back-link {
+            color: #60a5fa;
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+
+        .back-link:hover { text-decoration: underline; }
+
+        .calib-grid {
+            display: grid;
+            grid-template-columns: 1fr 320px;
+            gap: 16px;
+        }
+
+        @media (max-width: 900px) {
+            .calib-grid { grid-template-columns: 1fr; }
+        }
+
+        .preview-panel {
+            background: #16213e;
+            border: 1px solid #0f3460;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .preview-panel img {
+            width: 100%;
+            height: auto;
+            display: block;
+            background: #111;
+            min-height: 280px;
+        }
+
+        .preview-label {
+            padding: 8px 12px;
+            font-size: 0.85rem;
+            color: #e94560;
+            background: rgba(0,0,0,0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .preview-label .pairs-count {
+            color: #4ade80;
+            font-weight: 600;
+        }
+
+        .side-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .card {
+            background: #16213e;
+            border: 1px solid #0f3460;
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .card h3 {
+            font-size: 0.95rem;
+            color: #e94560;
+            margin-bottom: 12px;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+            align-items: center;
+        }
+
+        .form-row label {
+            font-size: 0.82rem;
+            color: #aaa;
+            min-width: 80px;
+        }
+
+        .form-row input {
+            flex: 1;
+            padding: 6px 10px;
+            border: 1px solid #0f3460;
+            background: #1a1a2e;
+            color: #eee;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            max-width: 100px;
+        }
+
+        .form-row input:focus {
+            outline: none;
+            border-color: #e94560;
+        }
+
+        .btn {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.2s;
+            width: 100%;
+            margin-bottom: 6px;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-capture {
+            background: #4ade80;
+            color: #111;
+        }
+
+        .btn-capture:hover:not(:disabled) { background: #22c55e; }
+
+        .btn-calibrate {
+            background: #e94560;
+            color: #fff;
+        }
+
+        .btn-calibrate:hover:not(:disabled) { background: #d63851; }
+
+        .btn-clear {
+            background: transparent;
+            border: 1px solid #666;
+            color: #aaa;
+        }
+
+        .btn-clear:hover:not(:disabled) { background: rgba(255,255,255,0.05); }
+
+        .btn-apply {
+            background: #0f3460;
+            color: #eee;
+            border: 1px solid #e94560;
+        }
+
+        .btn-apply:hover:not(:disabled) { background: #1a4a7a; }
+
+        .btn-small {
+            padding: 4px 10px;
+            font-size: 0.75rem;
+            width: auto;
+            margin: 0;
+        }
+
+        .status-msg {
+            font-size: 0.82rem;
+            color: #fbbf24;
+            padding: 8px;
+            background: rgba(251, 191, 36, 0.1);
+            border-radius: 4px;
+            min-height: 36px;
+            display: flex;
+            align-items: center;
+        }
+
+        .status-msg.success { color: #4ade80; background: rgba(74, 222, 128, 0.1); }
+        .status-msg.error { color: #f87171; background: rgba(248, 113, 113, 0.1); }
+
+        .result-panel {
+            display: none;
+        }
+
+        .result-panel.visible {
+            display: block;
+        }
+
+        .result-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .result-item {
+            text-align: center;
+            padding: 8px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 4px;
+        }
+
+        .result-item .label {
+            font-size: 0.75rem;
+            color: #888;
+        }
+
+        .result-item .value {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #4ade80;
+        }
+
+        .pairs-list {
+            font-size: 0.8rem;
+            color: #aaa;
+            max-height: 120px;
+            overflow-y: auto;
+        }
+
+        .pair-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .pair-item .del-btn {
+            color: #f87171;
+            cursor: pointer;
+            background: none;
+            border: none;
+            font-size: 0.8rem;
+            padding: 2px 6px;
+        }
+
+        .pair-item .del-btn:hover { color: #ef4444; }
+
+        .instructions {
+            font-size: 0.8rem;
+            color: #888;
+            line-height: 1.5;
+        }
+
+        .instructions ol {
+            padding-left: 18px;
+        }
+
+        .instructions li {
+            margin-bottom: 4px;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #666;
+            border-top-color: #e94560;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 6px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .keyboard-hint {
+            font-size: 0.75rem;
+            color: #666;
+            text-align: center;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Depth Anything V2 - Stereo Calibration</h1>
+        <div id="status-bar">
+            <a href="/" class="back-link">&larr; Back to Main</a>
+        </div>
+    </header>
+
+    <main>
+        <div class="calib-container">
+            <div class="calib-grid">
+                <!-- Preview -->
+                <div>
+                    <div class="preview-panel">
+                        <div class="preview-label">
+                            <span>Live Preview - Checkerboard Detection</span>
+                            <span class="pairs-count" id="pairs-count">0 pairs</span>
+                        </div>
+                        <img src="/calibrate/preview" alt="Calibration Preview" id="preview-img">
+                    </div>
+                </div>
+
+                <!-- Controls -->
+                <div class="side-panel">
+                    <!-- Settings -->
+                    <div class="card">
+                        <h3>Checkerboard Settings</h3>
+                        <div class="form-row">
+                            <label>Columns:</label>
+                            <input type="number" id="board-cols" value="9" min="3" max="20">
+                        </div>
+                        <div class="form-row">
+                            <label>Rows:</label>
+                            <input type="number" id="board-rows" value="6" min="3" max="20">
+                        </div>
+                        <div class="form-row">
+                            <label>Square (mm):</label>
+                            <input type="number" id="square-size" value="25" min="1" max="200" step="0.5">
+                        </div>
+                        <button class="btn btn-apply btn-small" onclick="applySettings()">Apply</button>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="card">
+                        <h3>Capture</h3>
+                        <button class="btn btn-capture" id="btn-capture" onclick="captureFrame()">
+                            Capture Pair
+                        </button>
+                        <div class="keyboard-hint">Press <b>Space</b> to capture</div>
+
+                        <div class="pairs-list" id="pairs-list"></div>
+
+                        <button class="btn btn-clear btn-small" onclick="clearPairs()"
+                            style="margin-top:8px">Clear All</button>
+                    </div>
+
+                    <!-- Status -->
+                    <div class="card">
+                        <div class="status-msg" id="status-msg">Ready. Show checkerboard to both cameras.</div>
+                    </div>
+
+                    <!-- Calibrate -->
+                    <div class="card">
+                        <h3>Run Calibration</h3>
+                        <div class="instructions">
+                            <ol>
+                                <li>Set checkerboard inner corners (cols &times; rows)</li>
+                                <li>Capture at least <b>15-20 pairs</b> at different angles</li>
+                                <li>Click "Calibrate" to compute</li>
+                            </ol>
+                        </div>
+                        <button class="btn btn-calibrate" id="btn-calibrate" onclick="runCalibration()"
+                            style="margin-top:10px">
+                            Calibrate
+                        </button>
+                    </div>
+
+                    <!-- Result -->
+                    <div class="card result-panel" id="result-panel">
+                        <h3>Calibration Result</h3>
+                        <div class="result-grid">
+                            <div class="result-item">
+                                <div class="label">RMS Error</div>
+                                <div class="value" id="res-rms">--</div>
+                            </div>
+                            <div class="result-item">
+                                <div class="label">Baseline</div>
+                                <div class="value" id="res-baseline">--</div>
+                            </div>
+                            <div class="result-item">
+                                <div class="label">Focal Length</div>
+                                <div class="value" id="res-focal">--</div>
+                            </div>
+                            <div class="result-item">
+                                <div class="label">Saved To</div>
+                                <div class="value" id="res-file" style="font-size:0.75rem;color:#60a5fa">--</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <p>Stereo Calibration | Jetson Nano - Depth Anything V2</p>
+    </footer>
+
+    <script>
+        let isCalibrating = false;
+
+        function setStatus(msg, type) {
+            const el = document.getElementById('status-msg');
+            el.textContent = msg;
+            el.className = 'status-msg' + (type ? ' ' + type : '');
+        }
+
+        function updatePairsList(numPairs) {
+            const list = document.getElementById('pairs-list');
+            document.getElementById('pairs-count').textContent = numPairs + ' pairs';
+            let html = '';
+            for (let i = 0; i < numPairs; i++) {
+                html += `<div class="pair-item">
+                    <span>Pair #${i + 1}</span>
+                    <button class="del-btn" onclick="deletePair(${i})">&times;</button>
+                </div>`;
+            }
+            list.innerHTML = html;
+        }
+
+        function pollStatus() {
+            fetch('/api/calibrate/status')
+                .then(r => r.json())
+                .then(data => {
+                    updatePairsList(data.num_pairs);
+                    document.getElementById('board-cols').value = data.board_cols;
+                    document.getElementById('board-rows').value = data.board_rows;
+                    document.getElementById('square-size').value = data.square_size;
+
+                    if (data.last_status) {
+                        const isErr = data.last_status.startsWith('Failed');
+                        const isOk = data.last_status.startsWith('Captured') ||
+                                     data.last_status.startsWith('Calibration done');
+                        setStatus(data.last_status, isErr ? 'error' : (isOk ? 'success' : ''));
+                    }
+
+                    if (data.is_calibrating) {
+                        isCalibrating = true;
+                        document.getElementById('btn-calibrate').disabled = true;
+                        document.getElementById('btn-calibrate').innerHTML =
+                            '<span class="spinner"></span>Calibrating...';
+                    } else if (isCalibrating) {
+                        isCalibrating = false;
+                        document.getElementById('btn-calibrate').disabled = false;
+                        document.getElementById('btn-calibrate').textContent = 'Calibrate';
+                    }
+
+                    if (data.result) {
+                        const panel = document.getElementById('result-panel');
+                        panel.classList.add('visible');
+                        document.getElementById('res-rms').textContent = data.result.rms;
+                        document.getElementById('res-baseline').textContent =
+                            data.result.baseline_cm + ' cm';
+                        document.getElementById('res-focal').textContent =
+                            data.result.focal_length + ' px';
+                        document.getElementById('res-file').textContent = data.result.saved_to;
+                    }
+                })
+                .catch(() => {});
+        }
+
+        function applySettings() {
+            const cols = parseInt(document.getElementById('board-cols').value);
+            const rows = parseInt(document.getElementById('board-rows').value);
+            const sq = parseFloat(document.getElementById('square-size').value);
+            fetch('/api/calibrate/settings', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({cols, rows, square_size: sq})
+            }).then(r => r.json()).then(data => {
+                setStatus(data.last_status, 'success');
+                updatePairsList(data.num_pairs);
+            });
+        }
+
+        function captureFrame() {
+            const btn = document.getElementById('btn-capture');
+            btn.disabled = true;
+            btn.textContent = 'Capturing...';
+            fetch('/api/calibrate/capture', {method: 'POST'})
+                .then(r => r.json())
+                .then(data => {
+                    btn.disabled = false;
+                    btn.textContent = 'Capture Pair';
+                    const type = data.success ? 'success' : 'error';
+                    setStatus(data.last_status, type);
+                    updatePairsList(data.num_pairs);
+                })
+                .catch(() => {
+                    btn.disabled = false;
+                    btn.textContent = 'Capture Pair';
+                });
+        }
+
+        function deletePair(index) {
+            fetch('/api/calibrate/delete', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({index})
+            }).then(r => r.json()).then(data => {
+                setStatus(data.last_status, 'success');
+                updatePairsList(data.num_pairs);
+            });
+        }
+
+        function clearPairs() {
+            if (!confirm('Clear all captured pairs?')) return;
+            fetch('/api/calibrate/clear', {method: 'POST'})
+                .then(r => r.json())
+                .then(data => {
+                    setStatus(data.last_status, 'success');
+                    updatePairsList(data.num_pairs);
+                    document.getElementById('result-panel').classList.remove('visible');
+                });
+        }
+
+        function runCalibration() {
+            isCalibrating = true;
+            document.getElementById('btn-calibrate').disabled = true;
+            document.getElementById('btn-calibrate').innerHTML =
+                '<span class="spinner"></span>Calibrating...';
+            setStatus('Running stereo calibration...', '');
+            fetch('/api/calibrate/run', {method: 'POST'})
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.started) {
+                        setStatus(data.last_status || 'Failed to start', 'error');
+                        isCalibrating = false;
+                        document.getElementById('btn-calibrate').disabled = false;
+                        document.getElementById('btn-calibrate').textContent = 'Calibrate';
+                    }
+                });
+        }
+
+        // Keyboard shortcut: Space to capture
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && !e.target.matches('input')) {
+                e.preventDefault();
+                captureFrame();
+            }
+        });
+
+        // Poll status every 1.5s
+        setInterval(pollStatus, 1500);
+        pollStatus();
+    </script>
+</body>
+</html>

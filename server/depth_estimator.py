@@ -37,14 +37,25 @@ class DepthAnythingV2Estimator:
             raise ValueError(f"Encoder '{encoder}' không hỗ trợ. Chọn 'vits', 'vitb', hoặc 'vitl'.")
 
         model_cfg = model_configs[encoder]
+
+        # Metric depth support
+        self.metric_depth = getattr(config, "METRIC_DEPTH", False)
+        if self.metric_depth:
+            max_depth = getattr(config, "MAX_DEPTH", 20)
+            model_cfg["max_depth"] = max_depth
+            dataset = getattr(config, "METRIC_DATASET", "hypersim")
+            ckpt_name = f"depth_anything_v2_metric_{dataset}_{encoder}.pth"
+        else:
+            ckpt_name = f"depth_anything_v2_{encoder}.pth"
+
         self.model = DepthAnythingV2(**model_cfg)
 
         # Tải checkpoint
-        ckpt_path = os.path.join(config.MODEL_DIR, f"depth_anything_v2_{encoder}.pth")
+        ckpt_path = os.path.join(config.MODEL_DIR, ckpt_name)
         if not os.path.exists(ckpt_path):
             raise FileNotFoundError(
                 f"Không tìm thấy checkpoint: {ckpt_path}\n"
-                f"Chạy 'python3 download_model.py' để tải model."
+                f"Download: https://huggingface.co/depth-anything/Depth-Anything-V2-Metric-Hypersim-Small/tree/main"
             )
 
         state_dict = torch.load(ckpt_path, map_location="cpu")
@@ -58,6 +69,8 @@ class DepthAnythingV2Estimator:
         print(f"[DepthEstimator] Model loaded: {encoder} on {self.device}")
         if config.USE_FP16:
             print("[DepthEstimator] FP16 enabled")
+        if self.metric_depth:
+            print(f"[DepthEstimator] Metric depth enabled (max_depth={model_cfg['max_depth']}m)")
 
     @torch.no_grad()
     def estimate(self, frame):
@@ -95,20 +108,35 @@ class DepthAnythingV2Estimator:
             # Resize về kích thước gốc
             depth = cv2.resize(depth, (w, h), interpolation=cv2.INTER_CUBIC)
 
-            # Normalize về [0, 255]
-            depth_min = depth.min()
-            depth_max = depth.max()
-            if depth_max - depth_min > 1e-6:
-                depth_normalized = (depth - depth_min) / (depth_max - depth_min)
+            if self.metric_depth:
+                # Metric depth: model output is already in meters
+                depth_meters = depth
+                # Normalize for colormap visualization only
+                depth_max = depth.max()
+                if depth_max > 1e-6:
+                    depth_vis = depth / depth_max
+                else:
+                    depth_vis = np.zeros_like(depth)
+                depth_colormap = cv2.applyColorMap(
+                    (depth_vis * 255).astype(np.uint8),
+                    cv2.COLORMAP_INFERNO
+                )
+                return depth_colormap, depth_meters
             else:
-                depth_normalized = np.zeros_like(depth)
+                # Relative depth: normalize to [0, 1]
+                depth_min = depth.min()
+                depth_max = depth.max()
+                if depth_max - depth_min > 1e-6:
+                    depth_normalized = (depth - depth_min) / (depth_max - depth_min)
+                else:
+                    depth_normalized = np.zeros_like(depth)
 
-            depth_colormap = cv2.applyColorMap(
-                (depth_normalized * 255).astype(np.uint8),
-                cv2.COLORMAP_INFERNO
-            )
+                depth_colormap = cv2.applyColorMap(
+                    (depth_normalized * 255).astype(np.uint8),
+                    cv2.COLORMAP_INFERNO
+                )
 
-            return depth_colormap, depth_normalized
+                return depth_colormap, depth_normalized
 
 
 def create_estimator():
@@ -408,6 +436,9 @@ class DualCameraDepthEstimator:
                         self._stereo_frame_count = 0
                         self._cached_depth_m = self._compute_stereo_depth(frame_l, frame_r)
                     depth_color = self._overlay_distance(depth_color, self._cached_depth_m)
+                elif getattr(self.estimator, 'metric_depth', False):
+                    # Metric depth from mono model: depth_raw is in meters
+                    depth_color = self._overlay_distance(depth_color, depth_raw)
                 else:
                     # Mono depth: relative depth overlay (no calibration)
                     depth_color = self._overlay_relative_depth(depth_color, depth_raw)

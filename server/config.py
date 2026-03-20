@@ -18,6 +18,13 @@ MODEL_ENCODER = "vitb"      # "vits", "vitb", or "vitl"
 MODEL_DIR = "checkpoints"
 MODEL_INPUT_SIZE = 518
 
+# === Metric Depth ===
+# Use metric depth model for absolute distance (meters) instead of relative depth.
+# Requires metric depth checkpoint: depth_anything_v2_metric_{METRIC_DATASET}_{MODEL_ENCODER}.pth
+METRIC_DEPTH = True
+METRIC_DATASET = "hypersim"  # "hypersim" (indoor, max 20m) or "vkitti" (outdoor, max 80m)
+MAX_DEPTH = 20               # 20 for hypersim, 80 for vkitti
+
 # === Inference Backend ===
 # "tensorrt" | "onnxrt" | "pytorch"
 INFERENCE_BACKEND = "pytorch"

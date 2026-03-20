@@ -24,7 +24,7 @@ class DepthAnythingV2Estimator:
 
     def _load_model(self):
         """Tải model Depth Anything V2."""
-        from depth_anything_v2.dpt import DepthAnythingV2
+        from Depth_Anything_V2.depth_anything_v2.dpt import DepthAnythingV2
 
         model_configs = {
             "vits": {"encoder": "vits", "features": 64, "out_channels": [48, 96, 192, 384]},

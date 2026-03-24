@@ -164,7 +164,6 @@ class DepthAnythingV2Estimator:
 
         self.metric_depth = config.METRIC_DEPTH
         if self.metric_depth:
-            model_cfg["max_depth"] = config.MAX_DEPTH
             ckpt_name = f"depth_anything_v2_metric_{config.METRIC_DATASET}_{encoder}.pth"
         else:
             ckpt_name = f"depth_anything_v2_{encoder}.pth"
@@ -179,7 +178,7 @@ class DepthAnythingV2Estimator:
             )
 
         state_dict = torch.load(ckpt_path, map_location="cpu")
-        self.model.load_state_dict(state_dict)
+        self.model.load_state_dict(state_dict, strict=False)
         self.model = self.model.to(self.device).eval()
 
         if config.USE_FP16 and self.device.type == "cuda":

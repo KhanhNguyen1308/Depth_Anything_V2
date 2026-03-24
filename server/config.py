@@ -42,7 +42,7 @@ STREAM_PORT = 9000          # TCP port for receiving camera frames
 # === Cloudflared Tunnel ===
 # Set STREAM_SOURCE to "tunnel" to read from cloudflared tunnel instead of TCP
 STREAM_SOURCE = "tcp"       # "tcp" (LAN) or "tunnel" (cloudflared)
-TUNNEL_STREAM_URL = "https://video-stream.ndkforge.io.vn"
+TUNNEL_STREAM_URL = "https://stream.ndkforge.io.vn"
 
 # === Web Server ===
 WEB_HOST = "0.0.0.0"

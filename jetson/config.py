@@ -29,7 +29,7 @@ JPEG_QUALITY = 90           # JPEG quality for streaming to server
 
 # === Cloudflared Tunnel Mode ===
 TUNNEL_STREAM_PORT = 9000   # HTTP MJPEG port for cloudflared tunnel
-TUNNEL_DOMAIN = "https://video-stream.ndkforge.io.vn"
+TUNNEL_DOMAIN = "https://stream.ndkforge.io.vn"
 
 # === Calibration Web UI ===
 WEB_HOST = "0.0.0.0"

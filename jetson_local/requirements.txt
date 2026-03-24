@@ -1,0 +1,18 @@
+# Jetson Nano Local Mode - Requirements
+# For Jetson Nano with JetPack (PyTorch pre-installed)
+
+# Core
+numpy
+opencv-python
+Pillow
+
+# Deep Learning (use JetPack pre-built wheels for torch/torchvision)
+# torch        # Pre-installed via JetPack
+# torchvision  # Pre-installed via JetPack
+
+# Object Detection
+ultralytics
+
+# Web Server
+flask>=2.0
+flask-cors

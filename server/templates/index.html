@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Depth Anything V2 - Jetson Nano</title>
+    <title>Depth Anything V2 - Single Camera</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <header>
-        <h1>Depth Anything V2 - Dual Camera</h1>
+        <h1>Depth Anything V2 - Single Camera</h1>
         <div id="status-bar">
             <span id="status-text">Đang kết nối...</span>
             <span id="fps-text">FPS: --</span>
@@ -54,7 +54,7 @@
         <div id="detection-view" class="view-panel">
             <div class="detection-layout">
                 <div class="stream-container detection-stream">
-                    <h3>Camera 0 - Object Detection</h3>
+                    <h3>Object Detection</h3>
                     <img src="" data-src="/video_feed/detection" alt="Object Detection" class="lazy-stream">
                 </div>
                 <div class="detection-sidebar">
@@ -68,22 +68,14 @@
 
         <!-- Individual streams -->
         <div id="individual-view" class="view-panel">
-            <div class="grid-2x2">
+            <div class="grid-1x2">
                 <div class="stream-container">
-                    <h3>Camera 0 - RGB</h3>
-                    <img src="" data-src="/video_feed/cam0_rgb" alt="Camera 0 RGB" class="lazy-stream">
+                    <h3>RGB</h3>
+                    <img src="" data-src="/video_feed/rgb" alt="Camera RGB" class="lazy-stream">
                 </div>
                 <div class="stream-container">
-                    <h3>Camera 0 - Depth</h3>
-                    <img src="" data-src="/video_feed/cam0_depth" alt="Camera 0 Depth" class="lazy-stream">
-                </div>
-                <div class="stream-container">
-                    <h3>Camera 1 - RGB</h3>
-                    <img src="" data-src="/video_feed/cam1_rgb" alt="Camera 1 RGB" class="lazy-stream">
-                </div>
-                <div class="stream-container">
-                    <h3>Camera 1 - Depth</h3>
-                    <img src="" data-src="/video_feed/cam1_depth" alt="Camera 1 Depth" class="lazy-stream">
+                    <h3>Depth</h3>
+                    <img src="" data-src="/video_feed/depth" alt="Camera Depth" class="lazy-stream">
                 </div>
             </div>
         </div>
@@ -159,18 +151,19 @@
 
                     // Distance info
                     var cd = data.center_dist, mn = data.min_dist, mx = data.max_dist;
-                    var unit = data.stereo ? 'm' : '';
+                    var isMetric = data.metric_depth;
+                    var unit = isMetric ? 'm' : '';
                     document.querySelectorAll('.depth-unit').forEach(el => el.textContent = unit);
 
                     document.getElementById('center-dist').textContent =
-                        (cd != null && cd > 0) ? cd.toFixed(data.stereo ? 2 : 3) : '--';
+                        (cd != null && cd > 0) ? cd.toFixed(isMetric ? 2 : 3) : '--';
                     document.getElementById('min-dist').textContent =
-                        (mn != null && mn > 0) ? mn.toFixed(data.stereo ? 2 : 3) : '--';
+                        (mn != null && mn > 0) ? mn.toFixed(isMetric ? 2 : 3) : '--';
                     document.getElementById('max-dist').textContent =
-                        (mx != null && mx > 0) ? mx.toFixed(data.stereo ? 2 : 3) : '--';
+                        (mx != null && mx > 0) ? mx.toFixed(isMetric ? 2 : 3) : '--';
 
                     // Update labels for relative mode
-                    if (!data.stereo) {
+                    if (!isMetric) {
                         document.querySelector('.center-card .depth-label').textContent = 'Trung tâm';
                         document.querySelectorAll('.depth-card:not(.center-card) .depth-label')[0].textContent = 'Xa nhất';
                         document.querySelectorAll('.depth-card:not(.center-card) .depth-label')[1].textContent = 'Gần nhất';

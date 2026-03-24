@@ -1,6 +1,6 @@
 """
 HTTP Camera Streamer - Runs on Jetson Nano.
-Serves synchronized stereo frames as MJPEG over HTTP on port 9000.
+Serves camera frames as MJPEG over HTTP on port 9000.
 Designed to work behind a cloudflared tunnel for remote access.
 
 Usage:
@@ -25,7 +25,7 @@ import config
 app = Flask(__name__)
 
 _frame_lock = threading.Lock()
-_combined_frame = None
+_current_frame = None
 
 
 def _configure_exposure(camera_index, name):
@@ -85,32 +85,23 @@ def open_camera(index, name):
     return cap
 
 
-def _capture_loop(cap0, cap1, quality):
-    """Continuously capture frames and combine side-by-side."""
-    global _combined_frame
+def _capture_loop(cap, quality):
+    """Continuously capture frames from camera."""
+    global _current_frame
     encode_param = [cv2.IMWRITE_JPEG_QUALITY, quality]
     frame_count = 0
     fps_time = time.time()
 
     while True:
-        ok0 = cap0.grab()
-        ok1 = cap1.grab()
-        if not (ok0 and ok1):
+        ret, frame = cap.read()
+        if not ret:
             time.sleep(0.001)
             continue
 
-        ret0, frame0 = cap0.retrieve()
-        ret1, frame1 = cap1.retrieve()
-        if not (ret0 and ret1):
-            continue
-
-        # Combine frames side-by-side: [cam0 | cam1]
-        combined = np.hstack((frame0, frame1))
-
-        _, jpeg = cv2.imencode(".jpg", combined, encode_param)
+        _, jpeg = cv2.imencode(".jpg", frame, encode_param)
         if jpeg is not None:
             with _frame_lock:
-                _combined_frame = jpeg.tobytes()
+                _current_frame = jpeg.tobytes()
 
         frame_count += 1
         now = time.time()
@@ -126,7 +117,7 @@ def _generate_mjpeg():
     interval = 1.0 / config.CAMERA_FPS
     while True:
         with _frame_lock:
-            frame_data = _combined_frame
+            frame_data = _current_frame
 
         if frame_data is None:
             time.sleep(0.01)
@@ -170,24 +161,22 @@ def main():
     print("=" * 50)
     print(f"  HTTP port: {args.port}")
     print(f"  Stream URL: http://0.0.0.0:{args.port}/stream")
-    print(f"  Cameras: [{config.CAMERA_0_INDEX}, {config.CAMERA_1_INDEX}]")
+    print(f"  Camera: {config.CAMERA_INDEX}")
     print(f"  Resolution: {config.CAMERA_WIDTH}x{config.CAMERA_HEIGHT} @ {config.CAMERA_FPS}fps")
     print(f"  JPEG quality: {args.quality}")
     print("=" * 50)
 
-    # Open cameras
-    print("\n[HTTP Streamer] Opening cameras...")
-    cap0 = open_camera(config.CAMERA_0_INDEX, "Cam0")
-    cap1 = open_camera(config.CAMERA_1_INDEX, "Cam1")
+    # Open camera
+    print("\n[HTTP Streamer] Opening camera...")
+    cap = open_camera(config.CAMERA_INDEX, "Cam")
 
     # Flush buffers
     for _ in range(5):
-        cap0.grab()
-        cap1.grab()
+        cap.grab()
 
     # Start capture thread
     capture_thread = threading.Thread(
-        target=_capture_loop, args=(cap0, cap1, args.quality), daemon=True
+        target=_capture_loop, args=(cap, args.quality), daemon=True
     )
     capture_thread.start()
 

@@ -16,7 +16,7 @@ import time
 import config
 from camera_receiver import RemoteCameraReceiver
 from http_camera_receiver import HttpCameraReceiver
-from depth_estimator import DualCameraDepthEstimator
+from depth_estimator import SingleCameraDepthEstimator
 from web_server import run_server, set_depth_processor
 
 
@@ -48,7 +48,7 @@ def main():
 
     # Initialize depth processor
     print("\n[Server] Initializing depth estimator...")
-    depth_processor = DualCameraDepthEstimator()
+    depth_processor = SingleCameraDepthEstimator()
 
     # Initialize camera receiver based on source mode
     print("[Server] Starting camera receiver...")

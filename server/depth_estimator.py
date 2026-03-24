@@ -178,18 +178,16 @@ def create_estimator():
     return DepthAnythingV2Estimator()
 
 
-class DualCameraDepthEstimator:
+class SingleCameraDepthEstimator:
     """
-    Xử lý depth estimation cho 2 camera xen kẽ.
-
-    1 inference thread luân phiên: cam0 → cam1 → cam0 → cam1 → ...
-    Kết hợp stereo SGBM + mono depth để tính khoảng cách tuyệt đối (mét).
+    Depth estimation cho single camera.
+    Sử dụng mono metric depth (Depth Anything V2) + YOLO object detection.
     """
 
     def __init__(self):
         self.estimator = create_estimator()
-        self._cam_rgb = [None, None]
-        self._cam_depth = [None, None]
+        self._cam_rgb = None
+        self._cam_depth = None
         self._combined = None
         self._fps = 0.0
         self._depth_info = {"min_dist": 0, "max_dist": 0, "center_dist": 0}
@@ -200,119 +198,12 @@ class DualCameraDepthEstimator:
         # Object detection
         self._detector = _get_object_detector()
         self._detections = []
-        self._cam_detection = None  # RGB frame with detection overlay
+        self._cam_detection = None
         self._detect_skip = getattr(config, "YOLO_SKIP_FRAMES", 2)
         self._detect_frame_count = 0
         self._cached_detections = []
-        # Stereo SGBM
-        self._sgbm = None
-        self._focal_length = 0.0
-        self._baseline = 0.0
-        self._cam0_is_right = False  # Auto-detected from T[0] sign
-        self._depth_history = []  # Rolling window cho stable measurement
-        self._stereo_frame_count = 0
-        self._stereo_skip = 3  # Only compute stereo every N frames
-        self._cached_depth_m = None  # Reuse last stereo result between skips
-        self._init_stereo()
-
-    def _init_stereo(self):
-        """Khởi tạo stereo SGBM và đọc calibration params."""
-        calib_file = getattr(config, "STEREO_CALIB_FILE", "calibration.npz")
-        if not os.path.exists(calib_file):
-            print("[DualDepth] No calibration file — stereo depth disabled")
-            return
-
-        data = np.load(calib_file)
-        mtx_l = data["mtx_l"].copy()
-        dist_l = data["dist_l"]
-        mtx_r = data["mtx_r"].copy()
-        dist_r = data["dist_r"]
-        R = data["R"]
-        T = data["T"]
-        self._baseline = float(np.linalg.norm(T))
-
-        # Auto-detect physical L/R from T[0]
-        # In stereoCalibrate: P_cam1 = R * P_cam0 + T
-        # T[0] < 0 → cam1 is to the RIGHT of cam0 → cam0=LEFT
-        # T[0] > 0 → cam1 is to the LEFT of cam0 → cam0=RIGHT
-        self._cam0_is_right = (T[0, 0] > 0)
-        side_info = ("USB0=RIGHT, USB1=LEFT" if self._cam0_is_right
-                     else "USB0=LEFT, USB1=RIGHT")
-        print(f"[DualDepth] T[0]={T[0,0]:.4f} → {side_info}")
-
-        # Scale intrinsics theo resolution hiện tại
-        calib_w = getattr(config, "STEREO_CALIB_WIDTH", 640)
-        calib_h = getattr(config, "STEREO_CALIB_HEIGHT", 480)
-        sx = config.CAMERA_WIDTH / calib_w
-        sy = config.CAMERA_HEIGHT / calib_h
-        if sx != 1.0 or sy != 1.0:
-            mtx_l[0, :] *= sx
-            mtx_l[1, :] *= sy
-            mtx_r[0, :] *= sx
-            mtx_r[1, :] *= sy
-
-        img_size = (config.CAMERA_WIDTH, config.CAMERA_HEIGHT)
-
-        # Dùng stereoRectify để lấy focal length ĐÚNG sau rectification
-        _, _, P1, _, _, _, _ = cv2.stereoRectify(
-            mtx_l, dist_l, mtx_r, dist_r, img_size, R, T, alpha=0,
-        )
-        self._focal_length = float(P1[0, 0])
-
-        # numDisparities phải đủ lớn cho vật thể gần
-        # min_depth = focal * baseline / numDisp
-        # Với fx=720, B=0.145: numDisp=192 → min ~0.54m
-        num_disp = 192
-        block_size = 7
-        self._sgbm = cv2.StereoSGBM_create(
-            minDisparity=0,
-            numDisparities=num_disp,
-            blockSize=block_size,
-            P1=8 * 3 * block_size ** 2,
-            P2=32 * 3 * block_size ** 2,
-            disp12MaxDiff=1,
-            uniquenessRatio=15,
-            speckleWindowSize=100,
-            speckleRange=32,
-            mode=cv2.STEREO_SGBM_MODE_SGBM_3WAY,
-        )
-        min_depth = self._focal_length * self._baseline / num_disp
-        print(f"[DualDepth] Stereo depth enabled: "
-              f"focal={self._focal_length:.1f}px (rectified), "
-              f"baseline={self._baseline*100:.1f}cm, "
-              f"numDisp={num_disp}, min_depth={min_depth:.2f}m")
-
-    def _compute_stereo_depth(self, frame_l, frame_r):
-        """Tính absolute depth (mét) từ stereo disparity.
-
-        frame_l = rectified cam0, frame_r = rectified cam1.
-        SGBM needs compute(physical_LEFT, physical_RIGHT).
-        Auto-detected from T[0] sign in _init_stereo.
-        """
-        if self._sgbm is None:
-            return None
-
-        gray0 = cv2.cvtColor(frame_l, cv2.COLOR_BGR2GRAY)
-        gray1 = cv2.cvtColor(frame_r, cv2.COLOR_BGR2GRAY)
-
-        # SGBM: compute(physical_LEFT, physical_RIGHT)
-        if self._cam0_is_right:
-            # USB0=RIGHT, USB1=LEFT → compute(gray1, gray0)
-            disp = self._sgbm.compute(gray1, gray0).astype(np.float32) / 16.0
-        else:
-            # USB0=LEFT, USB1=RIGHT → compute(gray0, gray1)
-            disp = self._sgbm.compute(gray0, gray1).astype(np.float32) / 16.0
-
-        # Z = f * B / d  (chỉ ở vùng disparity > 0)
-        valid = disp > 1.0
-        depth_m = np.zeros_like(disp)
-        depth_m[valid] = (self._focal_length * self._baseline) / disp[valid]
-
-        # Clamp range hợp lý (0.1m – 10m)
-        depth_m = np.clip(depth_m, 0, 10.0)
-        depth_m[~valid] = 0
-
-        return depth_m
+        # Depth history for stable measurement
+        self._depth_history = []
 
     def _overlay_distance(self, depth_color, depth_m):
         """Vẽ thông tin khoảng cách lên depth colormap."""
@@ -417,143 +308,81 @@ class DualCameraDepthEstimator:
         return result
 
     def start(self, camera_mgr):
-        """Khởi động inference thread xen kẽ."""
+        """Khởi động inference thread."""
         self._camera_mgr = camera_mgr
         self._running = True
 
         self._thread = threading.Thread(
-            target=self._alternating_loop, daemon=True,
-            name="inference-alternating",
+            target=self._inference_loop, daemon=True,
+            name="inference-loop",
         )
         self._thread.start()
-        print("[DualDepth] Alternating pipeline started (cam0→cam1→cam0→...)")
+        print("[DepthProcessor] Single camera pipeline started")
 
-    def _alternating_loop(self):
-        """Luân phiên inference giữa 2 camera."""
-        cam_id = 0
-        # Cache cặp frame đồng bộ cho stereo
-        self._stereo_pair = (None, None)
-
+    def _inference_loop(self):
+        """Inference loop cho single camera."""
         while self._running:
-            # Lấy cặp frame đồng bộ (cùng lock → cùng thời điểm grab)
-            ok_both, frame_l, frame_r = self._camera_mgr.read_both()
-            if not ok_both:
+            ok, frame = self._camera_mgr.read()
+            if not ok:
                 time.sleep(0.001)
                 continue
-
-            frame = frame_l if cam_id == 0 else frame_r
 
             t0 = time.time()
             depth_color, depth_raw = self.estimator.estimate(frame)
 
-            # Depth overlay on cam0
-            if cam_id == 0:
-                depth_m_for_detection = None
+            depth_m_for_detection = None
 
-                if self._sgbm is not None:
-                    # Stereo depth: absolute distance in meters
-                    self._stereo_frame_count += 1
-                    if self._stereo_frame_count >= self._stereo_skip:
-                        self._stereo_frame_count = 0
-                        self._cached_depth_m = self._compute_stereo_depth(frame_l, frame_r)
-                    depth_color = self._overlay_distance(depth_color, self._cached_depth_m)
-                    depth_m_for_detection = self._cached_depth_m
-                elif getattr(self.estimator, 'metric_depth', False):
-                    # Metric depth from mono model: depth_raw is in meters
-                    depth_color = self._overlay_distance(depth_color, depth_raw)
-                    depth_m_for_detection = depth_raw
-                else:
-                    # Mono depth: relative depth overlay (no calibration)
-                    depth_color = self._overlay_relative_depth(depth_color, depth_raw)
+            if getattr(self.estimator, 'metric_depth', False):
+                # Metric depth: depth_raw is in meters
+                depth_color = self._overlay_distance(depth_color, depth_raw)
+                depth_m_for_detection = depth_raw
+            else:
+                # Relative depth
+                depth_color = self._overlay_relative_depth(depth_color, depth_raw)
 
-                # Object detection on cam0
-                if self._detector is not None:
-                    self._detect_frame_count += 1
-                    if self._detect_frame_count >= self._detect_skip:
-                        self._detect_frame_count = 0
-                        dets = self._detector.detect(frame)
-                        has_metric = (self._sgbm is not None or
-                                      getattr(self.estimator, 'metric_depth', False))
-                        depth_for_dist = depth_m_for_detection if depth_m_for_detection is not None else depth_raw
-                        dets = self._detector.measure_distances(
-                            dets, depth_for_dist, has_metric_depth=has_metric
-                        )
-                        self._cached_detections = dets
+            # Object detection
+            det_frame = None
+            if self._detector is not None:
+                self._detect_frame_count += 1
+                if self._detect_frame_count >= self._detect_skip:
+                    self._detect_frame_count = 0
+                    dets = self._detector.detect(frame)
+                    has_metric = getattr(self.estimator, 'metric_depth', False)
+                    depth_for_dist = depth_m_for_detection if depth_m_for_detection is not None else depth_raw
+                    dets = self._detector.measure_distances(
+                        dets, depth_for_dist, has_metric_depth=has_metric
+                    )
+                    self._cached_detections = dets
 
-                    det_frame = self._detector.draw_detections(frame, self._cached_detections)
+                det_frame = self._detector.draw_detections(frame, self._cached_detections)
 
             elapsed = time.time() - t0
             fps = 1.0 / max(elapsed, 1e-6)
 
             with self._lock:
-                self._cam_rgb[cam_id] = frame
-                self._cam_depth[cam_id] = depth_color
+                self._cam_rgb = frame
+                self._cam_depth = depth_color
                 self._fps = fps
-                if cam_id == 0 and self._detector is not None:
+                if self._detector is not None:
                     self._cam_detection = det_frame
                     self._detections = list(self._cached_detections)
                 self._update_combined()
 
-            # Chuyển camera
-            cam_id = 1 - cam_id
-
     def _update_combined(self):
-        """Build combined view: blended RGB (both cams) + depth with distance."""
-        if self._cam_rgb[0] is None or self._cam_rgb[1] is None:
-            return
-        if self._cam_depth[0] is None:
+        """Build combined view: RGB + Depth side by side."""
+        if self._cam_rgb is None or self._cam_depth is None:
             return
 
-        h = min(self._cam_rgb[0].shape[0], self._cam_rgb[1].shape[0])
-        w = min(self._cam_rgb[0].shape[1], self._cam_rgb[1].shape[1])
-
-        f0 = cv2.resize(self._cam_rgb[0], (w, h))
-        f1 = cv2.resize(self._cam_rgb[1], (w, h))
-        # Blend both cameras 50/50 so center represents midpoint
-        blended = cv2.addWeighted(f0, 0.5, f1, 0.5, 0)
-
-        d0 = cv2.resize(self._cam_depth[0], (w, h))
-
-        self._combined = np.hstack([blended, d0])
-
-    def process_frames(self, frame0, frame1):
-        """Chế độ đồng bộ (backward compat cho test_trt.py)."""
-        t0 = time.time()
-
-        depth_color0, depth_raw0 = self.estimator.estimate(frame0)
-        depth_color1, depth_raw1 = self.estimator.estimate(frame1)
-
-        h = min(frame0.shape[0], frame1.shape[0])
-        w = min(frame0.shape[1], frame1.shape[1])
-
-        f0 = cv2.resize(frame0, (w, h))
-        d0 = cv2.resize(depth_color0, (w, h))
-        f1 = cv2.resize(frame1, (w, h))
-        d1 = cv2.resize(depth_color1, (w, h))
-
-        top_row = np.hstack([f0, d0])
-        bottom_row = np.hstack([f1, d1])
-        combined = np.vstack([top_row, bottom_row])
-
-        elapsed = time.time() - t0
-        fps = 1.0 / max(elapsed, 1e-6)
-
-        with self._lock:
-            self._cam_rgb[0] = frame0
-            self._cam_depth[0] = depth_color0
-            self._cam_rgb[1] = frame1
-            self._cam_depth[1] = depth_color1
-            self._combined = combined
-            self._fps = fps
+        h, w = self._cam_rgb.shape[:2]
+        depth_resized = cv2.resize(self._cam_depth, (w, h))
+        self._combined = np.hstack([self._cam_rgb, depth_resized])
 
     def get_results(self):
         """Lấy kết quả mới nhất (thread-safe)."""
         with self._lock:
             return {
-                "cam0_rgb": self._cam_rgb[0],
-                "cam0_depth": self._cam_depth[0],
-                "cam1_rgb": self._cam_rgb[1],
-                "cam1_depth": self._cam_depth[1],
+                "rgb": self._cam_rgb,
+                "depth": self._cam_depth,
                 "cam_detection": self._cam_detection,
                 "combined": self._combined,
                 "fps": self._fps,
@@ -566,4 +395,4 @@ class DualCameraDepthEstimator:
         self._running = False
         if self._thread is not None:
             self._thread.join(timeout=3)
-        print("[DualDepth] Pipeline stopped")
+        print("[DepthProcessor] Pipeline stopped")

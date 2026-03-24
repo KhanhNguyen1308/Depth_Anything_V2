@@ -4,28 +4,22 @@ Camera settings and server connection.
 """
 
 # === Camera ===
-CAMERA_0_INDEX = 0          # USB0 = physical LEFT camera
-CAMERA_1_INDEX = 1          # USB1 = physical RIGHT camera
-CAMERA_WIDTH = 640
-CAMERA_HEIGHT = 480
+CAMERA_INDEX = 0             # USB camera index
+CAMERA_WIDTH = 1920
+CAMERA_HEIGHT = 1080
 CAMERA_FPS = 30
 
-# Camera exposure control (OV9732)
+# Camera exposure control
 CAMERA_EXPOSURE_AUTO = 3      # 1=manual, 3=aperture_priority (auto)
-CAMERA_GAIN = 64
+CAMERA_GAIN = None            # None = auto
 
 # GStreamer pipeline (True = GStreamer MJPEG decode, False = V4L2)
 USE_GSTREAMER = True
 
-# === Stereo Calibration ===
-STEREO_CALIB_FILE = "calibration.npz"
-STEREO_CALIB_WIDTH = 640
-STEREO_CALIB_HEIGHT = 480
-
 # === Server Connection (TCP mode) ===
 SERVER_HOST = "192.168.2.10"
 SERVER_PORT = 9000
-JPEG_QUALITY = 90           # JPEG quality for streaming to server
+JPEG_QUALITY = 85            # JPEG quality for streaming to server
 
 # === Cloudflared Tunnel Mode ===
 TUNNEL_STREAM_PORT = 9000   # HTTP MJPEG port for cloudflared tunnel

@@ -167,6 +167,12 @@ main {
     gap: 12px;
 }
 
+.grid-1x2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
 footer {
     text-align: center;
     padding: 10px;
@@ -176,7 +182,8 @@ footer {
 }
 
 @media (max-width: 768px) {
-    .grid-2x2 {
+    .grid-2x2,
+    .grid-1x2 {
         grid-template-columns: 1fr;
     }
     

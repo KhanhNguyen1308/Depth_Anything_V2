@@ -1,6 +1,6 @@
 """
 Web Server - Flask streaming server cho Jetson Nano headless.
-Hiển thị RGB + Depth map từ 2 camera trên giao diện web.
+Hiển thị RGB + Depth map từ single camera trên giao diện web.
 """
 
 import cv2
@@ -72,45 +72,27 @@ def index():
 
 @app.route("/video_feed/combined")
 def video_feed_combined():
-    """Stream combined view (2x2 grid: RGB + Depth cho 2 camera)."""
+    """Stream combined view (RGB + Depth side by side)."""
     return Response(
         _generate_stream("combined"),
         mimetype="multipart/x-mixed-replace; boundary=frame",
     )
 
 
-@app.route("/video_feed/cam0_rgb")
-def video_feed_cam0_rgb():
-    """Stream Camera 0 RGB."""
+@app.route("/video_feed/rgb")
+def video_feed_rgb():
+    """Stream Camera RGB."""
     return Response(
-        _generate_stream("cam0_rgb"),
+        _generate_stream("rgb"),
         mimetype="multipart/x-mixed-replace; boundary=frame",
     )
 
 
-@app.route("/video_feed/cam0_depth")
-def video_feed_cam0_depth():
-    """Stream Camera 0 Depth."""
+@app.route("/video_feed/depth")
+def video_feed_depth():
+    """Stream Camera Depth."""
     return Response(
-        _generate_stream("cam0_depth"),
-        mimetype="multipart/x-mixed-replace; boundary=frame",
-    )
-
-
-@app.route("/video_feed/cam1_rgb")
-def video_feed_cam1_rgb():
-    """Stream Camera 1 RGB."""
-    return Response(
-        _generate_stream("cam1_rgb"),
-        mimetype="multipart/x-mixed-replace; boundary=frame",
-    )
-
-
-@app.route("/video_feed/cam1_depth")
-def video_feed_cam1_depth():
-    """Stream Camera 1 Depth."""
-    return Response(
-        _generate_stream("cam1_depth"),
+        _generate_stream("depth"),
         mimetype="multipart/x-mixed-replace; boundary=frame",
     )
 
@@ -132,8 +114,8 @@ def api_status():
 
     results = _depth_processor.get_results()
     depth_info = results.get("depth_info", {})
-    has_stereo = getattr(_depth_processor, '_sgbm', None) is not None
     yolo_enabled = getattr(config, "YOLO_ENABLED", False)
+    has_metric = getattr(_depth_processor, 'estimator', None) is not None and getattr(_depth_processor.estimator, 'metric_depth', False)
 
     # Format detections for API
     detections = results.get("detections", [])
@@ -154,7 +136,7 @@ def api_status():
         "input_size": config.MODEL_INPUT_SIZE,
         "fp16": config.USE_FP16,
         "stream_port": config.STREAM_PORT,
-        "stereo": has_stereo,
+        "metric_depth": has_metric,
         "center_dist": depth_info.get("center_dist", 0),
         "min_dist": depth_info.get("min_dist", 0),
         "max_dist": depth_info.get("max_dist", 0),

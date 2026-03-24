@@ -1,0 +1,141 @@
+"""
+Web Server for Jetson Nano local mode.
+Flask MJPEG streaming with depth + YOLO detection dashboard.
+"""
+
+import cv2
+import time
+from flask import Flask, Response, render_template, jsonify
+from flask_cors import CORS
+
+import config
+
+
+app = Flask(__name__)
+CORS(app)
+
+_processor = None
+
+
+def set_processor(processor):
+    global _processor
+    _processor = processor
+
+
+def _encode_jpeg(frame):
+    if frame is None:
+        return None
+    ret, jpeg = cv2.imencode(
+        ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, config.JPEG_QUALITY]
+    )
+    return jpeg.tobytes() if ret else None
+
+
+def _generate_stream(stream_key):
+    interval = 1.0 / config.STREAM_FPS
+    last_send = 0.0
+    while True:
+        if _processor is None:
+            time.sleep(0.1)
+            continue
+
+        now = time.monotonic()
+        elapsed = now - last_send
+        if elapsed < interval:
+            time.sleep(interval - elapsed)
+
+        results = _processor.get_results()
+        frame = results.get(stream_key)
+
+        if frame is not None:
+            jpeg_bytes = _encode_jpeg(frame)
+            if jpeg_bytes:
+                last_send = time.monotonic()
+                yield (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n\r\n"
+                    + jpeg_bytes
+                    + b"\r\n"
+                )
+
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+
+@app.route("/video_feed/combined")
+def video_feed_combined():
+    return Response(
+        _generate_stream("combined"),
+        mimetype="multipart/x-mixed-replace; boundary=frame",
+    )
+
+
+@app.route("/video_feed/rgb")
+def video_feed_rgb():
+    return Response(
+        _generate_stream("rgb"),
+        mimetype="multipart/x-mixed-replace; boundary=frame",
+    )
+
+
+@app.route("/video_feed/depth")
+def video_feed_depth():
+    return Response(
+        _generate_stream("depth"),
+        mimetype="multipart/x-mixed-replace; boundary=frame",
+    )
+
+
+@app.route("/video_feed/detection")
+def video_feed_detection():
+    return Response(
+        _generate_stream("cam_detection"),
+        mimetype="multipart/x-mixed-replace; boundary=frame",
+    )
+
+
+@app.route("/api/status")
+def api_status():
+    if _processor is None:
+        return jsonify({"status": "initializing", "fps": 0})
+
+    results = _processor.get_results()
+    depth_info = results.get("depth_info", {})
+
+    detections = results.get("detections", [])
+    det_list = []
+    for d in detections:
+        det_list.append({
+            "class": d.get("class_name", ""),
+            "confidence": round(d.get("confidence", 0), 2),
+            "distance": d.get("distance", 0),
+            "unit": d.get("distance_unit", ""),
+            "bbox": d.get("bbox", []),
+        })
+
+    return jsonify({
+        "status": "running",
+        "fps": round(results.get("fps", 0), 1),
+        "model": config.MODEL_ENCODER,
+        "input_size": config.MODEL_INPUT_SIZE,
+        "fp16": config.USE_FP16,
+        "metric_depth": config.METRIC_DEPTH,
+        "center_dist": depth_info.get("center_dist", 0),
+        "min_dist": depth_info.get("min_dist", 0),
+        "max_dist": depth_info.get("max_dist", 0),
+        "yolo_enabled": config.YOLO_ENABLED,
+        "detections": det_list,
+    })
+
+
+def run_server():
+    print(f"[WebServer] http://{config.WEB_HOST}:{config.WEB_PORT}")
+    app.run(
+        host=config.WEB_HOST,
+        port=config.WEB_PORT,
+        threaded=True,
+        use_reloader=False,
+        debug=False,
+    )

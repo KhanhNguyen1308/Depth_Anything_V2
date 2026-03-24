@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Depth Anything V2 - Jetson Nano Local</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <h1>Depth Anything V2 - Jetson Local</h1>
+        <div id="status-bar">
+            <span id="status-text">Đang kết nối...</span>
+            <span id="fps-text">FPS: --</span>
+            <span id="model-text">Model: --</span>
+        </div>
+    </header>
+
+    <main>
+        <div id="depth-panel">
+            <div class="depth-card center-card">
+                <div class="depth-label">Trung tâm</div>
+                <div class="depth-value" id="center-dist">--</div>
+                <div class="depth-unit">m</div>
+            </div>
+            <div class="depth-card">
+                <div class="depth-label">Gần nhất</div>
+                <div class="depth-value small" id="min-dist">--</div>
+                <div class="depth-unit">m</div>
+            </div>
+            <div class="depth-card">
+                <div class="depth-label">Xa nhất</div>
+                <div class="depth-value small" id="max-dist">--</div>
+                <div class="depth-unit">m</div>
+            </div>
+        </div>
+
+        <div class="view-controls">
+            <button class="view-btn active" data-view="combined">Combined View</button>
+            <button class="view-btn" data-view="detection">Detection View</button>
+            <button class="view-btn" data-view="individual">Individual Streams</button>
+        </div>
+
+        <div id="combined-view" class="view-panel active">
+            <div class="stream-container single">
+                <img src="/video_feed/combined" alt="Combined View" id="combined-img">
+            </div>
+        </div>
+
+        <div id="detection-view" class="view-panel">
+            <div class="detection-layout">
+                <div class="stream-container detection-stream">
+                    <h3>Object Detection</h3>
+                    <img src="" data-src="/video_feed/detection" alt="Object Detection" class="lazy-stream">
+                </div>
+                <div class="detection-sidebar">
+                    <h3>Detected Objects</h3>
+                    <div id="detection-list">
+                        <p class="no-detections">No objects detected</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="individual-view" class="view-panel">
+            <div class="grid-1x2">
+                <div class="stream-container">
+                    <h3>RGB</h3>
+                    <img src="" data-src="/video_feed/rgb" alt="Camera RGB" class="lazy-stream">
+                </div>
+                <div class="stream-container">
+                    <h3>Depth</h3>
+                    <img src="" data-src="/video_feed/depth" alt="Camera Depth" class="lazy-stream">
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <p>Depth Anything V2 | Jetson Nano Local Mode</p>
+    </footer>
+
+    <script>
+        document.querySelectorAll('.view-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.view-panel').forEach(p => p.classList.remove('active'));
+                btn.classList.add('active');
+                const panel = document.getElementById(btn.dataset.view + '-view');
+                panel.classList.add('active');
+                panel.querySelectorAll('.lazy-stream').forEach(img => {
+                    if (!img.src || img.src === window.location.href) {
+                        img.src = img.dataset.src;
+                    }
+                });
+            });
+        });
+
+        function updateDetections(detections) {
+            const list = document.getElementById('detection-list');
+            if (!list) return;
+            if (!detections || detections.length === 0) {
+                list.innerHTML = '<p class="no-detections">No objects detected</p>';
+                return;
+            }
+            let html = '';
+            detections.forEach(det => {
+                const distText = det.distance > 0 && det.unit
+                    ? `<span class="det-distance">${det.distance.toFixed(2)}${det.unit}</span>`
+                    : det.distance > 0
+                    ? `<span class="det-distance">${det.distance.toFixed(3)}</span>`
+                    : '<span class="det-distance">--</span>';
+                const confPct = Math.round(det.confidence * 100);
+                html += `<div class="det-item">
+                    <span class="det-name">${det.class}</span>
+                    <span class="det-conf">${confPct}%</span>
+                    ${distText}
+                </div>`;
+            });
+            list.innerHTML = html;
+        }
+
+        function updateStatus() {
+            fetch('/api/status')
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('status-text').textContent =
+                        data.status === 'running' ? '● Running' : '○ Initializing...';
+                    document.getElementById('status-text').className =
+                        data.status === 'running' ? 'running' : 'init';
+                    document.getElementById('fps-text').textContent = 'FPS: ' + data.fps;
+
+                    let modelInfo = 'Model: ' + data.model + ' (' + data.input_size + 'px' +
+                        (data.fp16 ? ', FP16' : '') + ')';
+                    if (data.yolo_enabled) modelInfo += ' + YOLO';
+                    document.getElementById('model-text').textContent = modelInfo;
+
+                    var cd = data.center_dist, mn = data.min_dist, mx = data.max_dist;
+                    var isMetric = data.metric_depth;
+                    var unit = isMetric ? 'm' : '';
+                    document.querySelectorAll('.depth-unit').forEach(el => el.textContent = unit);
+
+                    document.getElementById('center-dist').textContent =
+                        (cd != null && cd > 0) ? cd.toFixed(isMetric ? 2 : 3) : '--';
+                    document.getElementById('min-dist').textContent =
+                        (mn != null && mn > 0) ? mn.toFixed(isMetric ? 2 : 3) : '--';
+                    document.getElementById('max-dist').textContent =
+                        (mx != null && mx > 0) ? mx.toFixed(isMetric ? 2 : 3) : '--';
+
+                    if (!isMetric) {
+                        document.querySelector('.center-card .depth-label').textContent = 'Trung tâm';
+                        document.querySelectorAll('.depth-card:not(.center-card) .depth-label')[0].textContent = 'Xa nhất';
+                        document.querySelectorAll('.depth-card:not(.center-card) .depth-label')[1].textContent = 'Gần nhất';
+                    }
+
+                    updateDetections(data.detections);
+
+                    const detBtn = document.querySelector('[data-view="detection"]');
+                    if (detBtn) {
+                        detBtn.style.display = data.yolo_enabled ? '' : 'none';
+                    }
+                })
+                .catch(() => {
+                    document.getElementById('status-text').textContent = '● Offline';
+                    document.getElementById('status-text').className = 'offline';
+                });
+        }
+
+        setInterval(updateStatus, 2000);
+        updateStatus();
+    </script>
+</body>
+</html>

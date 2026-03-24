@@ -1,17 +1,11 @@
 """
 Configuration for the processing server.
-Receives camera streams from Jetson, runs depth estimation.
+Receives camera stream from Jetson, runs depth estimation + object detection.
 """
 
 # === Camera (must match Jetson config) ===
-CAMERA_WIDTH = 640
-CAMERA_HEIGHT = 480
-
-# === Stereo Calibration ===
-# Copy calibration.npz from the Jetson after calibrating
-STEREO_CALIB_FILE = "calibration.npz"
-STEREO_CALIB_WIDTH = 640
-STEREO_CALIB_HEIGHT = 480
+CAMERA_WIDTH = 1920
+CAMERA_HEIGHT = 1080
 
 # === Depth Anything V2 Model ===
 MODEL_ENCODER = "vitb"      # "vits", "vitb", or "vitl"

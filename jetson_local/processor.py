@@ -165,6 +165,7 @@ class DepthAnythingV2Estimator:
         self.metric_depth = config.METRIC_DEPTH
         if self.metric_depth:
             model_cfg["max_depth"] = config.MAX_DEPTH
+            model_cfg["use_bn"] = True
             ckpt_name = f"depth_anything_v2_metric_{config.METRIC_DATASET}_{encoder}.pth"
         else:
             ckpt_name = f"depth_anything_v2_{encoder}.pth"

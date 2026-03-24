@@ -22,10 +22,14 @@ STEREO_CALIB_FILE = "calibration.npz"
 STEREO_CALIB_WIDTH = 640
 STEREO_CALIB_HEIGHT = 480
 
-# === Server Connection ===
+# === Server Connection (TCP mode) ===
 SERVER_HOST = "192.168.2.10"
 SERVER_PORT = 9000
 JPEG_QUALITY = 90           # JPEG quality for streaming to server
+
+# === Cloudflared Tunnel Mode ===
+TUNNEL_STREAM_PORT = 9000   # HTTP MJPEG port for cloudflared tunnel
+TUNNEL_DOMAIN = "https://video-stream.ndkforge.io.vn"
 
 # === Calibration Web UI ===
 WEB_HOST = "0.0.0.0"

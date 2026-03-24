@@ -15,14 +15,20 @@ import time
 
 import config
 from camera_receiver import RemoteCameraReceiver
+from http_camera_receiver import HttpCameraReceiver
 from depth_estimator import DualCameraDepthEstimator
 from web_server import run_server, set_depth_processor
 
 
 def main():
     parser = argparse.ArgumentParser(description="Depth Processing Server")
+    parser.add_argument("--source", default=config.STREAM_SOURCE,
+                        choices=["tcp", "tunnel"],
+                        help="Camera source: 'tcp' (LAN) or 'tunnel' (cloudflared)")
     parser.add_argument("--port", type=int, default=config.STREAM_PORT,
-                        help="TCP port for camera stream")
+                        help="TCP port for camera stream (tcp mode)")
+    parser.add_argument("--tunnel-url", default=config.TUNNEL_STREAM_URL,
+                        help="Tunnel stream URL (tunnel mode)")
     parser.add_argument("--web-port", type=int, default=config.WEB_PORT,
                         help="Web UI port")
     args = parser.parse_args()
@@ -30,7 +36,11 @@ def main():
     print("=" * 60)
     print("  Depth Anything V2 - Processing Server")
     print("=" * 60)
-    print(f"  Camera stream port: {args.port}")
+    print(f"  Source mode: {args.source}")
+    if args.source == "tcp":
+        print(f"  Camera stream port: {args.port}")
+    else:
+        print(f"  Tunnel URL: {args.tunnel_url}")
     print(f"  Web UI: http://0.0.0.0:{args.web_port}")
     print(f"  Model: {config.MODEL_ENCODER} | Input: {config.MODEL_INPUT_SIZE}px")
     print(f"  Backend: {config.INFERENCE_BACKEND}")
@@ -40,9 +50,12 @@ def main():
     print("\n[Server] Initializing depth estimator...")
     depth_processor = DualCameraDepthEstimator()
 
-    # Initialize remote camera receiver
+    # Initialize camera receiver based on source mode
     print("[Server] Starting camera receiver...")
-    receiver = RemoteCameraReceiver(host="0.0.0.0", port=args.port)
+    if args.source == "tunnel":
+        receiver = HttpCameraReceiver(stream_url=args.tunnel_url.rstrip("/") + "/stream")
+    else:
+        receiver = RemoteCameraReceiver(host="0.0.0.0", port=args.port)
     receiver.start()
 
     # Register processor with web server
@@ -69,7 +82,10 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    print(f"\n[Server] Ready. Waiting for Jetson camera connection on port {args.port}...")
+    if args.source == "tunnel":
+        print(f"\n[Server] Ready. Reading stream from {args.tunnel_url}")
+    else:
+        print(f"\n[Server] Ready. Waiting for Jetson camera connection on port {args.port}...")
     print(f"  Web UI: http://0.0.0.0:{args.web_port}")
 
     try:

@@ -36,6 +36,14 @@ TENSORRT_WORKSPACE_MB = 512
 USE_FP16 = True
 TARGET_FPS = 30
 
+# === Object Detection (YOLOv8) ===
+YOLO_ENABLED = True            # Enable/disable object detection
+YOLO_MODEL = "yolov8m.pt"      # Model: yolov8n/s/m/l/x (.pt auto-downloads)
+YOLO_CONFIDENCE = 0.5          # Detection confidence threshold
+YOLO_INPUT_SIZE = 320          # YOLOv8 input size (smaller = faster)
+YOLO_DEVICE = "auto"           # "auto", "cuda", or "cpu"
+YOLO_SKIP_FRAMES = 2           # Run detection every N frames (1=every frame)
+
 # === Network ===
 STREAM_PORT = 9000          # TCP port for receiving camera frames
 

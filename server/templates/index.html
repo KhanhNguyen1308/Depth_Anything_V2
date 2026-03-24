@@ -39,6 +39,7 @@
         <!-- Chế độ xem -->
         <div class="view-controls">
             <button class="view-btn active" data-view="combined">Combined View</button>
+            <button class="view-btn" data-view="detection">Detection View</button>
             <button class="view-btn" data-view="individual">Individual Streams</button>
         </div>
 
@@ -46,6 +47,22 @@
         <div id="combined-view" class="view-panel active">
             <div class="stream-container single">
                 <img src="/video_feed/combined" alt="Combined View" id="combined-img">
+            </div>
+        </div>
+
+        <!-- Detection view -->
+        <div id="detection-view" class="view-panel">
+            <div class="detection-layout">
+                <div class="stream-container detection-stream">
+                    <h3>Camera 0 - Object Detection</h3>
+                    <img src="" data-src="/video_feed/detection" alt="Object Detection" class="lazy-stream">
+                </div>
+                <div class="detection-sidebar">
+                    <h3>Detected Objects</h3>
+                    <div id="detection-list">
+                        <p class="no-detections">No objects detected</p>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -88,16 +105,41 @@
                 const panel = document.getElementById(viewName + '-view');
                 panel.classList.add('active');
 
-                // Lazy load streams khi chuyển sang individual view
-                if (viewName === 'individual') {
-                    panel.querySelectorAll('.lazy-stream').forEach(img => {
-                        if (!img.src || img.src === window.location.href) {
-                            img.src = img.dataset.src;
-                        }
-                    });
-                }
+                // Lazy load streams when switching views
+                panel.querySelectorAll('.lazy-stream').forEach(img => {
+                    if (!img.src || img.src === window.location.href) {
+                        img.src = img.dataset.src;
+                    }
+                });
             });
         });
+
+        // Update detection list
+        function updateDetections(detections) {
+            const list = document.getElementById('detection-list');
+            if (!list) return;
+
+            if (!detections || detections.length === 0) {
+                list.innerHTML = '<p class="no-detections">No objects detected</p>';
+                return;
+            }
+
+            let html = '';
+            detections.forEach(det => {
+                const distText = det.distance > 0 && det.unit
+                    ? `<span class="det-distance">${det.distance.toFixed(2)}${det.unit}</span>`
+                    : det.distance > 0
+                    ? `<span class="det-distance">${det.distance.toFixed(3)}</span>`
+                    : '<span class="det-distance">--</span>';
+                const confPct = Math.round(det.confidence * 100);
+                html += `<div class="det-item">
+                    <span class="det-name">${det.class}</span>
+                    <span class="det-conf">${confPct}%</span>
+                    ${distText}
+                </div>`;
+            });
+            list.innerHTML = html;
+        }
 
         // Status polling
         function updateStatus() {
@@ -109,9 +151,11 @@
                     document.getElementById('status-text').className =
                         data.status === 'running' ? 'running' : 'init';
                     document.getElementById('fps-text').textContent = 'FPS: ' + data.fps;
-                    document.getElementById('model-text').textContent =
-                        'Model: ' + data.model + ' (' + data.input_size + 'px' +
+
+                    let modelInfo = 'Model: ' + data.model + ' (' + data.input_size + 'px' +
                         (data.fp16 ? ', FP16' : '') + ')';
+                    if (data.yolo_enabled) modelInfo += ' + YOLO';
+                    document.getElementById('model-text').textContent = modelInfo;
 
                     // Distance info
                     var cd = data.center_dist, mn = data.min_dist, mx = data.max_dist;
@@ -130,6 +174,15 @@
                         document.querySelector('.center-card .depth-label').textContent = 'Trung tâm';
                         document.querySelectorAll('.depth-card:not(.center-card) .depth-label')[0].textContent = 'Xa nhất';
                         document.querySelectorAll('.depth-card:not(.center-card) .depth-label')[1].textContent = 'Gần nhất';
+                    }
+
+                    // Detection list
+                    updateDetections(data.detections);
+
+                    // Show/hide detection button
+                    const detBtn = document.querySelector('[data-view="detection"]');
+                    if (detBtn) {
+                        detBtn.style.display = data.yolo_enabled ? '' : 'none';
                     }
                 })
                 .catch(() => {

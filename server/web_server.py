@@ -115,6 +115,15 @@ def video_feed_cam1_depth():
     )
 
 
+@app.route("/video_feed/detection")
+def video_feed_detection():
+    """Stream Camera 0 with object detection overlay."""
+    return Response(
+        _generate_stream("cam_detection"),
+        mimetype="multipart/x-mixed-replace; boundary=frame",
+    )
+
+
 @app.route("/api/status")
 def api_status():
     """API trả về trạng thái hệ thống + khoảng cách depth."""
@@ -124,6 +133,20 @@ def api_status():
     results = _depth_processor.get_results()
     depth_info = results.get("depth_info", {})
     has_stereo = getattr(_depth_processor, '_sgbm', None) is not None
+    yolo_enabled = getattr(config, "YOLO_ENABLED", False)
+
+    # Format detections for API
+    detections = results.get("detections", [])
+    det_list = []
+    for d in detections:
+        det_list.append({
+            "class": d.get("class_name", ""),
+            "confidence": round(d.get("confidence", 0), 2),
+            "distance": d.get("distance", 0),
+            "unit": d.get("distance_unit", ""),
+            "bbox": d.get("bbox", []),
+        })
+
     return jsonify({
         "status": "running",
         "fps": round(results.get("fps", 0), 1),
@@ -135,6 +158,8 @@ def api_status():
         "center_dist": depth_info.get("center_dist", 0),
         "min_dist": depth_info.get("min_dist", 0),
         "max_dist": depth_info.get("max_dist", 0),
+        "yolo_enabled": yolo_enabled,
+        "detections": det_list,
     })
 
 

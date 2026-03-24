@@ -189,4 +189,81 @@ footer {
         flex-wrap: wrap;
         gap: 8px;
     }
+
+    .detection-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Detection view */
+.detection-layout {
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    gap: 12px;
+    width: 100%;
+}
+
+.detection-stream img {
+    min-height: 400px;
+}
+
+.detection-sidebar {
+    background: #16213e;
+    border: 1px solid #0f3460;
+    border-radius: 8px;
+    padding: 12px;
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+.detection-sidebar h3 {
+    font-size: 0.9rem;
+    color: #e94560;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #0f3460;
+}
+
+.no-detections {
+    color: #666;
+    font-size: 0.85rem;
+    text-align: center;
+    padding: 20px 0;
+}
+
+.det-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.04);
+    margin-bottom: 4px;
+    font-size: 0.85rem;
+}
+
+.det-item:hover {
+    background: rgba(255,255,255,0.08);
+}
+
+.det-name {
+    flex: 1;
+    color: #eee;
+    font-weight: 500;
+    text-transform: capitalize;
+}
+
+.det-conf {
+    color: #fbbf24;
+    font-size: 0.8rem;
+    min-width: 32px;
+    text-align: right;
+}
+
+.det-distance {
+    color: #4ade80;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    min-width: 55px;
+    text-align: right;
 }

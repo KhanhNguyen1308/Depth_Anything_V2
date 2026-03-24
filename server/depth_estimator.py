@@ -12,6 +12,18 @@ import threading
 
 import config
 
+# Lazy import — only loaded if YOLO_ENABLED is True
+_object_detector = None
+
+
+def _get_object_detector():
+    """Lazy-load ObjectDetector if YOLO is enabled."""
+    global _object_detector
+    if _object_detector is None and getattr(config, "YOLO_ENABLED", False):
+        from object_detector import ObjectDetector
+        _object_detector = ObjectDetector()
+    return _object_detector
+
 
 class DepthAnythingV2Estimator:
     """Depth estimation sử dụng Depth Anything V2."""
@@ -185,6 +197,13 @@ class DualCameraDepthEstimator:
         self._camera_mgr = None
         self._running = False
         self._thread = None
+        # Object detection
+        self._detector = _get_object_detector()
+        self._detections = []
+        self._cam_detection = None  # RGB frame with detection overlay
+        self._detect_skip = getattr(config, "YOLO_SKIP_FRAMES", 2)
+        self._detect_frame_count = 0
+        self._cached_detections = []
         # Stereo SGBM
         self._sgbm = None
         self._focal_length = 0.0
@@ -429,6 +448,8 @@ class DualCameraDepthEstimator:
 
             # Depth overlay on cam0
             if cam_id == 0:
+                depth_m_for_detection = None
+
                 if self._sgbm is not None:
                     # Stereo depth: absolute distance in meters
                     self._stereo_frame_count += 1
@@ -436,12 +457,30 @@ class DualCameraDepthEstimator:
                         self._stereo_frame_count = 0
                         self._cached_depth_m = self._compute_stereo_depth(frame_l, frame_r)
                     depth_color = self._overlay_distance(depth_color, self._cached_depth_m)
+                    depth_m_for_detection = self._cached_depth_m
                 elif getattr(self.estimator, 'metric_depth', False):
                     # Metric depth from mono model: depth_raw is in meters
                     depth_color = self._overlay_distance(depth_color, depth_raw)
+                    depth_m_for_detection = depth_raw
                 else:
                     # Mono depth: relative depth overlay (no calibration)
                     depth_color = self._overlay_relative_depth(depth_color, depth_raw)
+
+                # Object detection on cam0
+                if self._detector is not None:
+                    self._detect_frame_count += 1
+                    if self._detect_frame_count >= self._detect_skip:
+                        self._detect_frame_count = 0
+                        dets = self._detector.detect(frame)
+                        has_metric = (self._sgbm is not None or
+                                      getattr(self.estimator, 'metric_depth', False))
+                        depth_for_dist = depth_m_for_detection if depth_m_for_detection is not None else depth_raw
+                        dets = self._detector.measure_distances(
+                            dets, depth_for_dist, has_metric_depth=has_metric
+                        )
+                        self._cached_detections = dets
+
+                    det_frame = self._detector.draw_detections(frame, self._cached_detections)
 
             elapsed = time.time() - t0
             fps = 1.0 / max(elapsed, 1e-6)
@@ -450,6 +489,9 @@ class DualCameraDepthEstimator:
                 self._cam_rgb[cam_id] = frame
                 self._cam_depth[cam_id] = depth_color
                 self._fps = fps
+                if cam_id == 0 and self._detector is not None:
+                    self._cam_detection = det_frame
+                    self._detections = list(self._cached_detections)
                 self._update_combined()
 
             # Chuyển camera
@@ -512,9 +554,11 @@ class DualCameraDepthEstimator:
                 "cam0_depth": self._cam_depth[0],
                 "cam1_rgb": self._cam_rgb[1],
                 "cam1_depth": self._cam_depth[1],
+                "cam_detection": self._cam_detection,
                 "combined": self._combined,
                 "fps": self._fps,
                 "depth_info": dict(self._depth_info),
+                "detections": list(self._detections),
             }
 
     def stop(self):

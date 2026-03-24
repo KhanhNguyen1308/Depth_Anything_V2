@@ -157,7 +157,8 @@ class DepthAnythingV2(nn.Module):
         features=256, 
         out_channels=[256, 512, 1024, 1024], 
         use_bn=False, 
-        use_clstoken=False
+        use_clstoken=False,
+        max_depth=0.0
     ):
         super(DepthAnythingV2, self).__init__()
         
@@ -169,6 +170,7 @@ class DepthAnythingV2(nn.Module):
         }
         
         self.encoder = encoder
+        self.max_depth = max_depth
         self.pretrained = DINOv2(model_name=encoder)
         
         self.depth_head = DPTHead(self.pretrained.embed_dim, features, use_bn, out_channels=out_channels, use_clstoken=use_clstoken)
@@ -179,7 +181,11 @@ class DepthAnythingV2(nn.Module):
         features = self.pretrained.get_intermediate_layers(x, self.intermediate_layer_idx[self.encoder], return_class_token=True)
         
         depth = self.depth_head(features, patch_h, patch_w)
-        depth = F.relu(depth)
+        
+        if self.max_depth > 0:
+            depth = F.sigmoid(depth) * self.max_depth
+        else:
+            depth = F.relu(depth)
         
         return depth.squeeze(1)
     

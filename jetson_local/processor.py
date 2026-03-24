@@ -165,7 +165,6 @@ class DepthAnythingV2Estimator:
         self.metric_depth = config.METRIC_DEPTH
         if self.metric_depth:
             model_cfg["max_depth"] = config.MAX_DEPTH
-            model_cfg["use_bn"] = True
             ckpt_name = f"depth_anything_v2_metric_{config.METRIC_DATASET}_{encoder}.pth"
         else:
             ckpt_name = f"depth_anything_v2_{encoder}.pth"
@@ -180,7 +179,22 @@ class DepthAnythingV2Estimator:
             )
 
         state_dict = torch.load(ckpt_path, map_location="cpu")
-        self.model.load_state_dict(state_dict)
+
+        # Check if checkpoint has max_depth key (true metric checkpoint)
+        has_max_depth_key = any("max_depth" in k for k in state_dict.keys())
+        print(f"[Depth] Checkpoint keys: {len(state_dict)}, has max_depth: {has_max_depth_key}")
+
+        # Detect mismatch: model expects BN but checkpoint doesn't, or vice versa
+        model_keys = set(self.model.state_dict().keys())
+        ckpt_keys = set(state_dict.keys())
+        missing = model_keys - ckpt_keys
+        unexpected = ckpt_keys - model_keys
+        if missing:
+            print(f"[Depth] WARNING: {len(missing)} missing keys (checkpoint doesn't have them)")
+        if unexpected:
+            print(f"[Depth] WARNING: {len(unexpected)} unexpected keys in checkpoint")
+
+        self.model.load_state_dict(state_dict, strict=False)
         self.model = self.model.to(self.device).eval()
 
         if config.USE_FP16 and self.device.type == "cuda":
@@ -206,6 +220,13 @@ class DepthAnythingV2Estimator:
 
             depth = self.model(img).squeeze().cpu().float().numpy()
             depth = cv2.resize(depth, (w, h), interpolation=cv2.INTER_CUBIC)
+
+            # Debug: log depth range on first few frames
+            if not hasattr(self, '_debug_count'):
+                self._debug_count = 0
+            if self._debug_count < 5:
+                self._debug_count += 1
+                print(f"[Depth] Raw output range: min={depth.min():.4f}, max={depth.max():.4f}, mean={depth.mean():.4f}")
 
             if self.metric_depth:
                 depth_max = depth.max()

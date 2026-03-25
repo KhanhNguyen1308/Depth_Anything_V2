@@ -294,6 +294,182 @@ def open_camera():
 
 
 # ============================================================
+# TensorRT Depth Estimator
+# ============================================================
+
+# ImageNet mean/std as pre-allocated (1,1,3) float32 arrays for fast in-place norm
+_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(1, 1, 3)
+_STD  = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(1, 1, 3)
+
+
+class TensorRTDepthEstimator:
+    """Drop-in replacement for DepthAnythingV2Estimator using a TensorRT engine.
+
+    Uses PyTorch CUDA tensors as TRT I/O buffers so that TRT shares the same
+    CUDA context that PyTorch already owns — no pycuda context conflicts.
+    """
+
+    def __init__(self):
+        import tensorrt as trt
+
+        self.metric_depth = config.METRIC_DEPTH
+        self.lock = threading.Lock()
+
+        engine_path = config.TENSORRT_ENGINE
+        if not os.path.exists(engine_path):
+            raise FileNotFoundError(
+                f"TensorRT engine not found: {engine_path}\n"
+                f"Run: python3 convert_to_trt.py"
+            )
+
+        # ── CRITICAL: prime PyTorch's primary CUDA context BEFORE TRT loads.
+        # TRT 8.0 on CUDA 10.2 (Jetson) calls cudaSetDevice / cuCtxCreate when
+        # the runtime or engine is first used.  If PyTorch hasn't touched CUDA
+        # yet, TRT may create its own non-primary context; then PyTorch creates
+        # the primary context, and data_ptr() pointers from one context are
+        # inaccessible (read as zeros) from the other.
+        # Calling torch.cuda.synchronize() forces PyTorch to initialise the
+        # primary context so TRT attaches to it instead of creating a new one.
+        torch.cuda.synchronize()
+
+        trt_logger = trt.Logger(trt.Logger.WARNING)
+        runtime = trt.Runtime(trt_logger)
+        with open(engine_path, "rb") as f:
+            self._engine = runtime.deserialize_cuda_engine(f.read())
+
+        self._context = self._engine.create_execution_context()
+
+        # Allocate pinned numpy arrays (CPU) + matching CUDA storage via ctypes.
+        # We use numpy/ctypes so the allocation lives in whatever context is
+        # current (the PyTorch primary context we just primed above).
+        import ctypes
+        self._libcuda = ctypes.CDLL("libcudart.so.10.2", use_errno=True)
+
+        self._d_ptrs = []        # ctypes c_void_p device pointers
+        self._h_bufs = []        # pinned numpy host arrays (for output only)
+        self._binding_shapes = []
+        self._binding_dtypes = []
+
+        for i in range(self._engine.num_bindings):
+            shape = tuple(self._engine.get_binding_shape(i))
+            np_dtype = trt.nptype(self._engine.get_binding_dtype(i))
+            nbytes = int(np.prod(shape)) * np.dtype(np_dtype).itemsize
+
+            d_ptr = ctypes.c_void_p()
+            ret = self._libcuda.cudaMalloc(ctypes.byref(d_ptr), ctypes.c_size_t(nbytes))
+            if ret != 0:
+                raise RuntimeError(f"cudaMalloc failed (binding {i}): error {ret}")
+
+            h_buf = np.empty(shape, dtype=np_dtype)  # host buffer for D2H
+            self._d_ptrs.append(d_ptr)
+            self._h_bufs.append(h_buf)
+            self._binding_shapes.append(shape)
+            self._binding_dtypes.append(np_dtype)
+
+            kind = "INPUT" if self._engine.binding_is_input(i) else "OUTPUT"
+            print(f"[TRT] Binding {i} {kind}: {self._engine.get_binding_name(i)} {shape} {np_dtype}")
+
+        print(f"[TRT] Engine loaded: {engine_path}")
+        print(f"[TRT] Metric depth max={config.MAX_DEPTH}m" if self.metric_depth else "[TRT] Relative depth mode")
+
+    @torch.no_grad()
+    def estimate(self, frame):
+        import ctypes
+        cudaMemcpyHostToDevice = 1
+        cudaMemcpyDeviceToHost = 2
+
+        with self.lock:
+            h, w = frame.shape[:2]
+            in_shape = self._binding_shapes[0]   # (1, 3, H, W)
+            in_h, in_w = int(in_shape[2]), int(in_shape[3])
+
+            # Pre-process on CPU → contiguous flat array
+            img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            # Scale maintaining aspect ratio then center-crop.
+            # INTER_LINEAR is ≈3× faster than INTER_CUBIC on Jetson and
+            # accuracy difference is negligible at 308×420.
+            scale = max(in_h / h, in_w / w)
+            nw = max(in_w, int(w * scale))
+            nh = max(in_h, int(h * scale))
+            img = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_LINEAR)
+            sy = (nh - in_h) // 2
+            sx = (nw - in_w) // 2
+            img = img[sy:sy + in_h, sx:sx + in_w]
+
+            # Normalize in-place on float32 buffer (avoids extra allocations)
+            img = img.astype(np.float32)
+            img *= (1.0 / 255.0)
+            img -= _MEAN
+            img /= _STD
+            img = np.ascontiguousarray(img.transpose(2, 0, 1)[None], dtype=self._binding_dtypes[0])
+
+            nbytes_in = img.nbytes
+            ret = self._libcuda.cudaMemcpy(
+                self._d_ptrs[0],
+                img.ctypes.data_as(ctypes.c_void_p),
+                ctypes.c_size_t(nbytes_in),
+                ctypes.c_int(cudaMemcpyHostToDevice),
+            )
+            if ret != 0:
+                raise RuntimeError(f"cudaMemcpy H2D failed: {ret}")
+
+            if not hasattr(self, '_dbg'):
+                self._dbg = 0
+            if self._dbg < 3:
+                print(f"[TRT] H2D OK, input min={img.min():.4f} max={img.max():.4f}")
+
+            bindings = [int(p.value) for p in self._d_ptrs]
+            ok = self._context.execute_v2(bindings=bindings)
+            if not ok:
+                raise RuntimeError("TensorRT execute_v2 returned False")
+
+            # D2H: output binding → host numpy
+            out_buf = self._h_bufs[1]
+            nbytes_out = out_buf.nbytes
+            ret = self._libcuda.cudaMemcpy(
+                out_buf.ctypes.data_as(ctypes.c_void_p),
+                self._d_ptrs[1],
+                ctypes.c_size_t(nbytes_out),
+                ctypes.c_int(cudaMemcpyDeviceToHost),
+            )
+            if ret != 0:
+                raise RuntimeError(f"cudaMemcpy D2H failed: {ret}")
+
+            depth = out_buf.squeeze().astype(np.float32)
+
+            if self._dbg < 3:
+                self._dbg += 1
+                print(f"[TRT] Output min={depth.min():.4f} max={depth.max():.4f} "
+                      f"nan={int(np.isnan(depth).sum())} inf={int(np.isinf(depth).sum())}")
+
+            depth = np.nan_to_num(depth, nan=0.0, posinf=0.0, neginf=0.0)
+
+            # Apply depth calibration: corrected = (raw - DEPTH_OFFSET) / DEPTH_SCALE
+            # This corrects for the Hypersim training camera vs real webcam FOV mismatch.
+            d_scale  = config.DEPTH_SCALE
+            d_offset = config.DEPTH_OFFSET
+            depth = (depth - d_offset) / max(d_scale, 1e-6)
+            np.clip(depth, 0.0, config.MAX_DEPTH, out=depth)
+
+            depth = cv2.resize(depth, (w, h), interpolation=cv2.INTER_LINEAR)
+
+            if self.metric_depth:
+                depth_max = depth.max()
+                depth_vis = depth / depth_max if depth_max > 1e-6 else np.zeros_like(depth)
+                colormap = cv2.applyColorMap((depth_vis * 255).astype(np.uint8), cv2.COLORMAP_INFERNO)
+                return colormap, depth
+            else:
+                d_min, d_max = depth.min(), depth.max()
+                if d_max - d_min > 1e-6:
+                    depth_norm = (depth - d_min) / (d_max - d_min)
+                else:
+                    depth_norm = np.zeros_like(depth)
+                colormap = cv2.applyColorMap((depth_norm * 255).astype(np.uint8), cv2.COLORMAP_INFERNO)
+                return colormap, depth_norm
+
+
+# ============================================================
 # Processing Pipeline
 # ============================================================
 
@@ -301,7 +477,11 @@ class LocalProcessor:
     """All-in-one: camera capture + depth + YOLO + web results."""
 
     def __init__(self):
-        self._estimator = DepthAnythingV2Estimator()
+        backend = config.INFERENCE_BACKEND.lower()
+        if backend == "tensorrt":
+            self._estimator = TensorRTDepthEstimator()
+        else:
+            self._estimator = DepthAnythingV2Estimator()
         self._detector = ObjectDetector() if config.YOLO_ENABLED else None
         self._cap = None
         self._running = False
@@ -338,8 +518,15 @@ class LocalProcessor:
 
             t0 = time.time()
 
-            # Depth estimation
-            depth_color, depth_raw = self._estimator.estimate(frame)
+            try:
+                # Depth estimation
+                depth_color, depth_raw = self._estimator.estimate(frame)
+            except Exception as exc:
+                print(f"[Processor] depth estimate error: {exc}")
+                with self._lock:
+                    self._rgb = frame.copy()
+                time.sleep(0.01)
+                continue
 
             # Overlay distance info
             if self._estimator.metric_depth:
@@ -355,11 +542,14 @@ class LocalProcessor:
                 self._detect_count += 1
                 if self._detect_count >= config.YOLO_SKIP_FRAMES:
                     self._detect_count = 0
-                    dets = self._detector.detect(frame)
-                    dets = self._detector.measure_distances(
-                        dets, depth_for_det, has_metric_depth=self._estimator.metric_depth
-                    )
-                    self._cached_dets = dets
+                    try:
+                        dets = self._detector.detect(frame)
+                        dets = self._detector.measure_distances(
+                            dets, depth_for_det, has_metric_depth=self._estimator.metric_depth
+                        )
+                        self._cached_dets = dets
+                    except Exception as exc:
+                        print(f"[Processor] YOLO error: {exc}")
                 det_frame = self._detector.draw_detections(frame, self._cached_dets)
 
             # Combined view
@@ -371,7 +561,7 @@ class LocalProcessor:
             fps = 1.0 / max(elapsed, 1e-6)
 
             with self._lock:
-                self._rgb = frame
+                self._rgb = frame.copy()
                 self._depth = depth_color
                 self._detection = det_frame
                 self._combined = combined

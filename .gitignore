@@ -17,7 +17,6 @@ checkpoints/
 *.pt
 
 # Calibration data (device-specific)
-calibration.npz
 calibration_backup.npz
 
 # Test outputs
@@ -26,6 +25,7 @@ test_output.jpg
 # Upstream model repo (submodule or download separately)
 Depth-Anything-V2/
 server/depth_anything_v2/
+jetson_local/depth_anything_v2/
 
 # IDE
 .vscode/

@@ -14,7 +14,7 @@ CAMERA_EXPOSURE_AUTO = 3      # 1=manual, 3=aperture_priority (auto)
 CAMERA_GAIN = None            # None = auto
 
 # GStreamer pipeline (True = GStreamer MJPEG decode, False = V4L2)
-USE_GSTREAMER = True
+USE_GSTREAMER = False
 
 # === Depth Anything V2 Model ===
 MODEL_ENCODER = "vits"       # "vits" recommended for Jetson Nano (fastest)
@@ -26,18 +26,41 @@ METRIC_DEPTH = True
 METRIC_DATASET = "hypersim"  # "hypersim" (indoor, max 20m) or "vkitti" (outdoor, max 80m)
 MAX_DEPTH = 20               # 20 for hypersim, 80 for vkitti
 
+# === Depth Calibration ===
+# The metric model is calibrated for its training camera (Hypersim virtual cam).
+# Real webcams with a different FOV will have a systematic offset.
+# Corrected depth = (raw_depth - DEPTH_OFFSET) / DEPTH_SCALE
+# Set both to defaults (0.0 / 1.0) to disable correction.
+#
+# How to calibrate (need ≥3 measurements):
+#   1. Measure real distances (e.g. 0.5, 1.0, 1.5, 2.0 m) to a flat surface
+#   2. Read the raw depth value at that pixel from the console "[depth]" log
+#   3. Run: python3 calibrate_depth.py  (will print DEPTH_SCALE and DEPTH_OFFSET)
+#
+# Quick two-point estimate from user measurements (OLD squished 308×308 engine):
+#   real=0.60m → raw≈1.63m    real=1.68m → raw≈2.43m
+#   → DEPTH_SCALE ≈ 0.741,  DEPTH_OFFSET ≈ 1.185
+# The offset (~1.19m) is model-intrinsic (Hypersim virtual camera vs real webcam FOV).
+# The same values apply to the new 308×420 engine since the model weights are unchanged.
+# To re-calibrate: measure at 2+ known distances, read raw depth from the console
+# "[TRT] Output" line (or use center crosshair on the depth view), then:
+#   DEPTH_SCALE  = (raw2 - raw1) / (real2 - real1)
+#   DEPTH_OFFSET = raw1 - DEPTH_SCALE * real1
+DEPTH_SCALE  = 0.741   # slope:     raw = DEPTH_SCALE * real + DEPTH_OFFSET
+DEPTH_OFFSET = 1.186   # intercept: corrected = (raw - DEPTH_OFFSET) / DEPTH_SCALE
+
 # === Inference Backend ===
 # "tensorrt" | "onnxrt" | "pytorch"
-INFERENCE_BACKEND = "pytorch"
+INFERENCE_BACKEND = "tensorrt"
 
-ONNX_MODEL = "depth_anything_v2_vits_fixed.onnx"
-TENSORRT_ENGINE = "depth_anything_v2_vits_fixed_fp16.engine"
+ONNX_MODEL = "hypersim_vits_308x420.onnx"
+TENSORRT_ENGINE = "hypersim_vits_308x420.engine"
 TENSORRT_WORKSPACE_MB = 512
 
 USE_FP16 = True
 
 # === Object Detection (YOLOv8) ===
-YOLO_ENABLED = True            # Enable/disable object detection
+YOLO_ENABLED = False           # Enable/disable object detection
 YOLO_MODEL = "yolov8n.pt"     # yolov8n = fastest, best for Jetson Nano
 YOLO_CONFIDENCE = 0.5          # Detection confidence threshold
 YOLO_INPUT_SIZE = 320          # YOLOv8 input size

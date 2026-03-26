@@ -74,6 +74,10 @@ def open_camera(index, name):
     fps = cap.get(cv2.CAP_PROP_FPS)
     print(f"  [{name}] Opened: index={index}, {w}x{h} @ {fps:.0f}fps")
 
+    if w != config.CAMERA_WIDTH or h != config.CAMERA_HEIGHT:
+        print(f"  [{name}] WARNING: Requested {config.CAMERA_WIDTH}x{config.CAMERA_HEIGHT} "
+              f"but got {w}x{h}. Update config to match actual camera output.")
+
     _configure_exposure(index, name)
     return cap
 

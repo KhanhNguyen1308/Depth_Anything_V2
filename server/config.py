@@ -3,7 +3,7 @@ Configuration for the processing server.
 Receives camera stream from Jetson, runs depth estimation + object detection.
 """
 
-# === Camera (must match Jetson config) ===
+# === Camera (must match Jetson STREAM_WIDTH/STREAM_HEIGHT) ===
 CAMERA_WIDTH = 1920
 CAMERA_HEIGHT = 1080
 

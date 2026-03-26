@@ -1,20 +1,28 @@
 """
 Configuration for Jetson Nano camera streamer.
 Camera settings and server connection.
+UGREEN 4K mono USB camera.
 """
 
 # === Camera ===
-CAMERA_INDEX = 0             # USB camera index
-CAMERA_WIDTH = 1920
-CAMERA_HEIGHT = 1080
-CAMERA_FPS = 30
+CAMERA_INDEX = 0             # USB camera index (UGREEN 4K mono)
+CAMERA_WIDTH = 3840          # Capture resolution — 4K
+CAMERA_HEIGHT = 2160
+CAMERA_FPS = 15              # 4K MJPEG @ 15fps (USB bandwidth limit)
+
+# Stream resolution: resize before sending to reduce network bandwidth.
+# Depth Anything V2 internally resizes to MODEL_INPUT_SIZE anyway.
+# Set to None to stream at full capture resolution (very heavy at 4K).
+STREAM_WIDTH = 1920
+STREAM_HEIGHT = 1080
 
 # Camera exposure control
 CAMERA_EXPOSURE_AUTO = 3      # 1=manual, 3=aperture_priority (auto)
 CAMERA_GAIN = None            # None = auto
 
 # GStreamer pipeline (True = GStreamer MJPEG decode, False = V4L2)
-USE_GSTREAMER = True
+# V4L2 is more reliable for UGREEN UVC cameras; use False unless GStreamer is needed.
+USE_GSTREAMER = False
 
 # === Server Connection (TCP mode) ===
 SERVER_HOST = "192.168.2.10"

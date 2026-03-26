@@ -92,11 +92,19 @@ def _capture_loop(cap, quality):
     frame_count = 0
     fps_time = time.time()
 
+    # Target stream resolution (downscale 4K → 1080p before encoding)
+    sw = getattr(config, "STREAM_WIDTH", None)
+    sh = getattr(config, "STREAM_HEIGHT", None)
+
     while True:
         ret, frame = cap.read()
         if not ret:
             time.sleep(0.001)
             continue
+
+        # Resize before encoding if stream dimensions differ from capture
+        if sw and sh and (frame.shape[1] != sw or frame.shape[0] != sh):
+            frame = cv2.resize(frame, (sw, sh), interpolation=cv2.INTER_AREA)
 
         _, jpeg = cv2.imencode(".jpg", frame, encode_param)
         if jpeg is not None:
@@ -162,7 +170,11 @@ def main():
     print(f"  HTTP port: {args.port}")
     print(f"  Stream URL: http://0.0.0.0:{args.port}/stream")
     print(f"  Camera: {config.CAMERA_INDEX}")
-    print(f"  Resolution: {config.CAMERA_WIDTH}x{config.CAMERA_HEIGHT} @ {config.CAMERA_FPS}fps")
+    print(f"  Capture: {config.CAMERA_WIDTH}x{config.CAMERA_HEIGHT} @ {config.CAMERA_FPS}fps")
+    sw = getattr(config, "STREAM_WIDTH", None)
+    sh = getattr(config, "STREAM_HEIGHT", None)
+    if sw and sh and (sw != config.CAMERA_WIDTH or sh != config.CAMERA_HEIGHT):
+        print(f"  Stream:  {sw}x{sh} (resized before send)")
     print(f"  JPEG quality: {args.quality}")
     print("=" * 50)
 

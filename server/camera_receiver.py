@@ -81,7 +81,7 @@ class RemoteCameraReceiver:
                     header = self._recv_exact(client_sock, 4)
                     size, = struct.unpack("!I", header)
 
-                    if size > 5_000_000:
+                    if size > 20_000_000:
                         print(f"[Receiver] Invalid frame size: {size}")
                         break
 

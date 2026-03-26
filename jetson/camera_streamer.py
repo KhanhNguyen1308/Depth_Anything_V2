@@ -78,11 +78,23 @@ def open_camera(index, name):
     return cap
 
 
+def _get_stream_size():
+    """Return (stream_w, stream_h) — the resolution sent over the wire."""
+    sw = getattr(config, "STREAM_WIDTH", None)
+    sh = getattr(config, "STREAM_HEIGHT", None)
+    if sw and sh:
+        return sw, sh
+    return config.CAMERA_WIDTH, config.CAMERA_HEIGHT
+
+
 def send_frame(sock, frame, quality):
     """
-    Send a single frame over TCP.
+    Resize (if configured) and send a single frame over TCP.
     Protocol: [4 bytes: size][jpeg_data]
     """
+    sw, sh = _get_stream_size()
+    if frame.shape[1] != sw or frame.shape[0] != sh:
+        frame = cv2.resize(frame, (sw, sh), interpolation=cv2.INTER_AREA)
     encode_param = [cv2.IMWRITE_JPEG_QUALITY, quality]
     _, jpg = cv2.imencode(".jpg", frame, encode_param)
     data = jpg.tobytes()
@@ -102,7 +114,10 @@ def main():
     print("=" * 50)
     print(f"  Server: {args.server}:{args.port}")
     print(f"  Camera: {config.CAMERA_INDEX}")
-    print(f"  Resolution: {config.CAMERA_WIDTH}x{config.CAMERA_HEIGHT} @ {config.CAMERA_FPS}fps")
+    sw, sh = _get_stream_size()
+    print(f"  Capture: {config.CAMERA_WIDTH}x{config.CAMERA_HEIGHT} @ {config.CAMERA_FPS}fps")
+    if (sw, sh) != (config.CAMERA_WIDTH, config.CAMERA_HEIGHT):
+        print(f"  Stream:  {sw}x{sh} (resized before send)")
     print(f"  JPEG quality: {args.quality}")
     print("=" * 50)
 
@@ -139,7 +154,8 @@ def main():
                 sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 sock.settimeout(5)
                 sock.connect((args.server, args.port))
-                info = struct.pack("!HH", config.CAMERA_WIDTH, config.CAMERA_HEIGHT)
+                sw, sh = _get_stream_size()
+                info = struct.pack("!HH", sw, sh)
                 sock.sendall(info)
                 print(f"[Streamer] Connected to {args.server}:{args.port}")
             except (ConnectionRefusedError, OSError, socket.timeout) as e:

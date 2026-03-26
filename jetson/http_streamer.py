@@ -21,6 +21,68 @@ from flask import Flask, Response
 
 import config
 
+class FfmpegCamera:
+    """
+    Camera capture via ffmpeg subprocess pipe.
+    Reads 4K MJPEG from v4l2, scales inside ffmpeg, outputs raw BGR frames.
+    Avoids allocating huge raw frames in Python and doesn't need OpenCV GStreamer.
+    """
+
+    def __init__(self, device, in_w, in_h, fps, out_w, out_h):
+        self._out_w = out_w
+        self._out_h = out_h
+        self._fps = fps
+        self._frame_bytes = out_w * out_h * 3
+
+        cmd = [
+            "ffmpeg",
+            "-loglevel", "error",
+            "-f", "v4l2",
+            "-input_format", "mjpeg",
+            "-video_size", f"{in_w}x{in_h}",
+            "-framerate", str(fps),
+            "-i", device,
+            "-vf", f"scale={out_w}:{out_h}",
+            "-f", "rawvideo",
+            "-pix_fmt", "bgr24",
+            "pipe:1",
+        ]
+        self._proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            bufsize=self._frame_bytes * 2,
+        )
+
+    def isOpened(self):
+        return self._proc.poll() is None
+
+    def read(self):
+        raw = self._proc.stdout.read(self._frame_bytes)
+        if len(raw) != self._frame_bytes:
+            return False, None
+        frame = np.frombuffer(raw, dtype=np.uint8).reshape(self._out_h, self._out_w, 3)
+        return True, frame.copy()
+
+    def grab(self):
+        """Read and discard one frame (used for buffer flush)."""
+        raw = self._proc.stdout.read(self._frame_bytes)
+        return len(raw) == self._frame_bytes
+
+    def get(self, prop_id):
+        if prop_id == cv2.CAP_PROP_FRAME_WIDTH:
+            return float(self._out_w)
+        if prop_id == cv2.CAP_PROP_FRAME_HEIGHT:
+            return float(self._out_h)
+        if prop_id == cv2.CAP_PROP_FPS:
+            return float(self._fps)
+        return 0.0
+
+    def release(self):
+        try:
+            self._proc.terminate()
+            self._proc.wait(timeout=3)
+        except Exception:
+            self._proc.kill()
+
 
 app = Flask(__name__)
 
@@ -56,23 +118,39 @@ def _configure_exposure(camera_index, name):
 
 def open_camera(index, name):
     """Open a USB camera."""
+    sw = getattr(config, "STREAM_WIDTH", None)
+    sh = getattr(config, "STREAM_HEIGHT", None)
+    need_scale = sw and sh and (sw != config.CAMERA_WIDTH or sh != config.CAMERA_HEIGHT)
+
     if config.USE_GSTREAMER:
-        sw = getattr(config, "STREAM_WIDTH", None)
-        sh = getattr(config, "STREAM_HEIGHT", None)
         if sw and sh:
-            # Decode MJPEG and scale inside GStreamer — Python receives 1080p frames directly.
-            # This avoids allocating a ~24MB raw 4K frame in Python memory.
-            scale = f"videoscale ! video/x-raw, width={sw}, height={sh}, format=BGR ! "
+            pipeline = (
+                f"v4l2src device=/dev/video{index} ! "
+                f"image/jpeg,width={config.CAMERA_WIDTH},height={config.CAMERA_HEIGHT},"
+                f"framerate={config.CAMERA_FPS}/1 ! "
+                f"jpegdec ! videoscale ! "
+                f"video/x-raw,width={sw},height={sh} ! "
+                f"videoconvert ! appsink drop=true sync=false max-buffers=1"
+            )
         else:
-            scale = "video/x-raw, format=BGR ! "
-        pipeline = (
-            f"v4l2src device=/dev/video{index} ! "
-            f"image/jpeg, width={config.CAMERA_WIDTH}, height={config.CAMERA_HEIGHT}, "
-            f"framerate={config.CAMERA_FPS}/1 ! "
-            f"jpegdec ! videoconvert ! {scale}"
-            f"appsink drop=1 sync=false"
-        )
+            pipeline = (
+                f"v4l2src device=/dev/video{index} ! "
+                f"image/jpeg,width={config.CAMERA_WIDTH},height={config.CAMERA_HEIGHT},"
+                f"framerate={config.CAMERA_FPS}/1 ! "
+                f"jpegdec ! videoconvert ! "
+                f"appsink drop=true sync=false max-buffers=1"
+            )
+        print(f"  [{name}] GStreamer pipeline: {pipeline}")
         cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+    elif need_scale:
+        # Use ffmpeg pipe: 4K decode + scale inside ffmpeg, Python gets 1080p frames.
+        print(f"  [{name}] Using ffmpeg pipe: {config.CAMERA_WIDTH}x{config.CAMERA_HEIGHT} "
+              f"\u2192 {sw}x{sh}")
+        cap = FfmpegCamera(
+            f"/dev/video{index}",
+            config.CAMERA_WIDTH, config.CAMERA_HEIGHT, config.CAMERA_FPS,
+            sw, sh,
+        )
     else:
         cap = cv2.VideoCapture(index, cv2.CAP_V4L2)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.CAMERA_WIDTH)
@@ -87,11 +165,7 @@ def open_camera(index, name):
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS)
-    print(f"  [{name}] Opened: index={index}, {w}x{h} @ {fps:.0f}fps")
-
-    if w != config.CAMERA_WIDTH or h != config.CAMERA_HEIGHT:
-        print(f"  [{name}] WARNING: Requested {config.CAMERA_WIDTH}x{config.CAMERA_HEIGHT} "
-              f"but got {w}x{h}. Update config to match actual camera output.")
+    print(f"  [{name}] Opened: {w}x{h} @ {fps:.0f}fps")
 
     _configure_exposure(index, name)
     return cap

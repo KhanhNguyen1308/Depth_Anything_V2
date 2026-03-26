@@ -20,9 +20,9 @@ STREAM_HEIGHT = 1080
 CAMERA_EXPOSURE_AUTO = 3      # 1=manual, 3=aperture_priority (auto)
 CAMERA_GAIN = None            # None = auto
 
-# GStreamer pipeline — must be True for 4K to avoid out-of-memory crash.
-# GStreamer decodes MJPEG and scales to STREAM_WIDTH×STREAM_HEIGHT inside the pipeline.
-USE_GSTREAMER = True
+# GStreamer pipeline — set False (OpenCV on this Jetson has no GStreamer support).
+# 4K → 1080p scaling is handled by an ffmpeg subprocess pipe instead.
+USE_GSTREAMER = False
 
 # === Server Connection (TCP mode) ===
 SERVER_HOST = "192.168.2.10"

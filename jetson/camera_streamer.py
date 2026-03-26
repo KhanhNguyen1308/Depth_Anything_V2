@@ -82,23 +82,11 @@ def open_camera(index, name):
     return cap
 
 
-def _get_stream_size():
-    """Return (stream_w, stream_h) — the resolution sent over the wire."""
-    sw = getattr(config, "STREAM_WIDTH", None)
-    sh = getattr(config, "STREAM_HEIGHT", None)
-    if sw and sh:
-        return sw, sh
-    return config.CAMERA_WIDTH, config.CAMERA_HEIGHT
-
-
 def send_frame(sock, frame, quality):
     """
-    Resize (if configured) and send a single frame over TCP.
+    Send a single frame over TCP.
     Protocol: [4 bytes: size][jpeg_data]
     """
-    sw, sh = _get_stream_size()
-    if frame.shape[1] != sw or frame.shape[0] != sh:
-        frame = cv2.resize(frame, (sw, sh), interpolation=cv2.INTER_AREA)
     encode_param = [cv2.IMWRITE_JPEG_QUALITY, quality]
     _, jpg = cv2.imencode(".jpg", frame, encode_param)
     data = jpg.tobytes()
@@ -118,10 +106,7 @@ def main():
     print("=" * 50)
     print(f"  Server: {args.server}:{args.port}")
     print(f"  Camera: {config.CAMERA_INDEX}")
-    sw, sh = _get_stream_size()
-    print(f"  Capture: {config.CAMERA_WIDTH}x{config.CAMERA_HEIGHT} @ {config.CAMERA_FPS}fps")
-    if (sw, sh) != (config.CAMERA_WIDTH, config.CAMERA_HEIGHT):
-        print(f"  Stream:  {sw}x{sh} (resized before send)")
+    print(f"  Config: {config.CAMERA_WIDTH}x{config.CAMERA_HEIGHT} @ {config.CAMERA_FPS}fps")
     print(f"  JPEG quality: {args.quality}")
     print("=" * 50)
 
@@ -132,6 +117,24 @@ def main():
     # Flush buffers
     for _ in range(5):
         cap.grab()
+
+    # Capture one real frame to determine actual frame dimensions from the driver
+    ret_test, test_frame = cap.read()
+    if not ret_test or test_frame is None:
+        raise RuntimeError("[Streamer] Cannot read initial frame — check camera index/resolution")
+    actual_h, actual_w = test_frame.shape[:2]
+    print(f"  [Cam] Actual frame size from driver: {actual_w}x{actual_h}")
+
+    # Stream size override (only if explicitly set in config)
+    _sw = getattr(config, "STREAM_WIDTH", None)
+    _sh = getattr(config, "STREAM_HEIGHT", None)
+    stream_override = (_sw, _sh) if (_sw and _sh) else None
+    if stream_override:
+        print(f"  [Cam] Stream override: {stream_override[0]}x{stream_override[1]}")
+
+    # Handshake dimensions = stream override (if set) else actual frame dims
+    handshake_w = stream_override[0] if stream_override else actual_w
+    handshake_h = stream_override[1] if stream_override else actual_h
 
     running = True
 
@@ -158,10 +161,9 @@ def main():
                 sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 sock.settimeout(5)
                 sock.connect((args.server, args.port))
-                sw, sh = _get_stream_size()
-                info = struct.pack("!HH", sw, sh)
+                info = struct.pack("!HH", handshake_w, handshake_h)
                 sock.sendall(info)
-                print(f"[Streamer] Connected to {args.server}:{args.port}")
+                print(f"[Streamer] Connected to {args.server}:{args.port} ({handshake_w}x{handshake_h})")
             except (ConnectionRefusedError, OSError, socket.timeout) as e:
                 sock = None
                 print(f"[Streamer] Cannot connect: {e}. Retrying in {reconnect_delay}s...")
@@ -173,6 +175,10 @@ def main():
             if not ret:
                 time.sleep(0.001)
                 continue
+
+            # Resize only when an explicit stream override is configured
+            if stream_override and (frame.shape[1] != stream_override[0] or frame.shape[0] != stream_override[1]):
+                frame = cv2.resize(frame, stream_override, interpolation=cv2.INTER_AREA)
 
             try:
                 send_frame(sock, frame, args.quality)

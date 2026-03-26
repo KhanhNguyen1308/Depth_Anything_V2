@@ -89,16 +89,12 @@ def open_camera(index, name):
     return cap
 
 
-def _capture_loop(cap, quality):
+def _capture_loop(cap, quality, stream_override=None):
     """Continuously capture frames from camera."""
     global _current_frame
     encode_param = [cv2.IMWRITE_JPEG_QUALITY, quality]
     frame_count = 0
     fps_time = time.time()
-
-    # Target stream resolution (downscale 4K → 1080p before encoding)
-    sw = getattr(config, "STREAM_WIDTH", None)
-    sh = getattr(config, "STREAM_HEIGHT", None)
 
     while True:
         ret, frame = cap.read()
@@ -106,9 +102,9 @@ def _capture_loop(cap, quality):
             time.sleep(0.001)
             continue
 
-        # Resize before encoding if stream dimensions differ from capture
-        if sw and sh and (frame.shape[1] != sw or frame.shape[0] != sh):
-            frame = cv2.resize(frame, (sw, sh), interpolation=cv2.INTER_AREA)
+        # Resize only if an explicit stream override is configured
+        if stream_override and (frame.shape[1] != stream_override[0] or frame.shape[0] != stream_override[1]):
+            frame = cv2.resize(frame, stream_override, interpolation=cv2.INTER_AREA)
 
         _, jpeg = cv2.imencode(".jpg", frame, encode_param)
         if jpeg is not None:
@@ -190,9 +186,14 @@ def main():
     for _ in range(5):
         cap.grab()
 
+    # Stream size override — only resize if explicitly configured
+    _sw = getattr(config, "STREAM_WIDTH", None)
+    _sh = getattr(config, "STREAM_HEIGHT", None)
+    stream_override = (_sw, _sh) if (_sw and _sh) else None
+
     # Start capture thread
     capture_thread = threading.Thread(
-        target=_capture_loop, args=(cap, args.quality), daemon=True
+        target=_capture_loop, args=(cap, args.quality, stream_override), daemon=True
     )
     capture_thread.start()
 

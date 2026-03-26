@@ -1,19 +1,20 @@
 """
 Configuration for Jetson Nano camera streamer.
-UGREEN 4K mono USB camera — capture at 1080p (most compatible native UVC mode).
-Depth Anything V2 resizes input to 518px internally, so 4K capture gives no depth benefit.
+UGREEN 4K mono USB camera.
+Capture at 4K (full sensor FOV) then downscale to 1080p before streaming.
+If you capture at 1080p directly, the camera crops the sensor center → zoomed-in look.
 """
 
 # === Camera ===
 CAMERA_INDEX = 0             # USB camera index (UGREEN 4K mono)
-CAMERA_WIDTH = 1920          # Capture at 1080p — reliable on all USB modes
-CAMERA_HEIGHT = 1080
-CAMERA_FPS = 30
+CAMERA_WIDTH = 3840          # Capture at full 4K sensor resolution
+CAMERA_HEIGHT = 2160
+CAMERA_FPS = 15              # 4K MJPEG @ 15fps (USB 3.0 bandwidth limit)
 
-# Stream resolution override (resize before sending).
-# Keep None to stream at capture resolution (recommended at 1080p).
-STREAM_WIDTH = None
-STREAM_HEIGHT = None
+# Resize before sending — full FOV downscaled to 1080p.
+# Depth Anything V2 resizes to 518px internally so no depth quality is lost.
+STREAM_WIDTH = 1920
+STREAM_HEIGHT = 1080
 
 # Camera exposure control
 CAMERA_EXPOSURE_AUTO = 3      # 1=manual, 3=aperture_priority (auto)
@@ -35,4 +36,4 @@ TUNNEL_DOMAIN = "https://stream.ndkforge.io.vn"
 # === Calibration Web UI ===
 WEB_HOST = "0.0.0.0"
 WEB_PORT = 5000
-STREAM_FPS = 30
+STREAM_FPS = 15

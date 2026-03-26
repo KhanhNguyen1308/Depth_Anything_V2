@@ -9,10 +9,10 @@ If you capture at 1080p directly, the camera crops the sensor center → zoomed-
 CAMERA_INDEX = 0             # USB camera index (UGREEN 4K mono)
 CAMERA_WIDTH = 3840          # Capture at full 4K sensor resolution
 CAMERA_HEIGHT = 2160
-CAMERA_FPS = 15              # 4K MJPEG @ 15fps (USB 3.0 bandwidth limit)
+CAMERA_FPS = 30              # 4K MJPEG @ 30fps (camera native, use GStreamer)
 
-# Resize before sending — full FOV downscaled to 1080p.
-# Depth Anything V2 resizes to 518px internally so no depth quality is lost.
+# GStreamer pipeline resizes before output — STREAM_WIDTH/HEIGHT used in pipeline.
+# At full 4K raw decode would be 24MB/frame; GStreamer resizes inside the pipeline.
 STREAM_WIDTH = 1920
 STREAM_HEIGHT = 1080
 
@@ -20,9 +20,9 @@ STREAM_HEIGHT = 1080
 CAMERA_EXPOSURE_AUTO = 3      # 1=manual, 3=aperture_priority (auto)
 CAMERA_GAIN = None            # None = auto
 
-# GStreamer pipeline (True = GStreamer MJPEG decode, False = V4L2)
-# V4L2 is more reliable for UGREEN UVC cameras.
-USE_GSTREAMER = False
+# GStreamer pipeline — must be True for 4K to avoid out-of-memory crash.
+# GStreamer decodes MJPEG and scales to STREAM_WIDTH×STREAM_HEIGHT inside the pipeline.
+USE_GSTREAMER = True
 
 # === Server Connection (TCP mode) ===
 SERVER_HOST = "192.168.2.10"
@@ -36,4 +36,4 @@ TUNNEL_DOMAIN = "https://stream.ndkforge.io.vn"
 # === Calibration Web UI ===
 WEB_HOST = "0.0.0.0"
 WEB_PORT = 5000
-STREAM_FPS = 15
+STREAM_FPS = 30

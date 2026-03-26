@@ -50,11 +50,19 @@ def _configure_exposure(camera_index, name):
 def open_camera(index, name):
     """Open a USB camera."""
     if config.USE_GSTREAMER:
+        sw = getattr(config, "STREAM_WIDTH", None)
+        sh = getattr(config, "STREAM_HEIGHT", None)
+        if sw and sh:
+            # Decode MJPEG and scale inside GStreamer — Python receives 1080p frames directly.
+            # This avoids allocating a ~24MB raw 4K frame in Python memory.
+            scale = f"videoscale ! video/x-raw, width={sw}, height={sh}, format=BGR ! "
+        else:
+            scale = "video/x-raw, format=BGR ! "
         pipeline = (
             f"v4l2src device=/dev/video{index} ! "
             f"image/jpeg, width={config.CAMERA_WIDTH}, height={config.CAMERA_HEIGHT}, "
             f"framerate={config.CAMERA_FPS}/1 ! "
-            f"jpegdec ! videoconvert ! video/x-raw, format=BGR ! "
+            f"jpegdec ! videoconvert ! {scale}"
             f"appsink drop=1 sync=false"
         )
         cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
